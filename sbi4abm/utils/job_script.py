@@ -44,6 +44,41 @@ def _acf(x, lag):
 	"""
 	return np.dot(x[:-lag], x[lag:]) / (x.shape[0] - 1)
 
+# class Summariser1D:
+
+# 	def __init__(self, simulator):
+
+# 		self.simulator = simulator
+
+# 	def __call__(self, pars):
+
+# 		"""
+# 		Summarises 1D time series x with: quantiles 0, 25, 50, 75, 100; mean;
+# 		variance; autocorrelations at lags 1, 2, 3
+# 		"""
+
+# 		x = self.simulator(pars)
+# 		return self.summarise(x)
+
+# 	def summarise(self, x):
+
+# 		x = x.reshape(-1)
+# 		sx = np.array([
+# 			np.min(x),
+# 			np.quantile(x, 0.25),
+# 			np.median(x),
+# 			np.quantile(x, 0.75),
+# 			np.max(x),
+# 			np.mean(x),
+# 			np.var(x),
+# 			_acf(x, 1),
+# 			_acf(x, 2),
+# 			_acf(x, 3)
+# 		])
+# 		return sx
+
+
+
 class Summariser1D:
 
 	def __init__(self, simulator):
@@ -61,21 +96,26 @@ class Summariser1D:
 		return self.summarise(x)
 
 	def summarise(self, x):
+		final_state = x[-1]
+		center = np.mean(final_state, axis=0)
+		final_cohesion = np.mean([np.linalg.norm(agent - center) for agent in final_state])
 
-		x = x.reshape(-1)
+		distances = [np.linalg.norm(agent - other) for agent in final_state for other in final_state if not np.array_equal(agent, other)]
+		final_separation_std = np.std(distances)
+		final_separation_avg = np.mean(distances)
+
+		cohesion_separation_ratio = final_cohesion / final_separation_std
+
 		sx = np.array([
-			np.min(x),
-			np.quantile(x, 0.25),
-			np.median(x),
-			np.quantile(x, 0.75),
-			np.max(x),
-			np.mean(x),
-			np.var(x),
-			_acf(x, 1),
-			_acf(x, 2),
-			_acf(x, 3)
+			final_cohesion,
+			final_separation_avg,
+			final_separation_std,
+			cohesion_separation_ratio
 		])
+
 		return sx
+	
+
 
 #def _summary_wrap_simulator(simulator):
 #	"""

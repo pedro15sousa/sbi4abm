@@ -5,8 +5,8 @@ from typing import Any, List, Optional, Union
 
 from torch import Tensor
 
-from sbi.utils import conditional_corrcoeff as utils_conditional_corrcoeff
-from sbi.utils import eval_conditional_density as utils_eval_conditional_density
+from sbi4abm.sbi.utils import conditional_corrcoeff as utils_conditional_corrcoeff
+from sbi4abm.sbi.utils import eval_conditional_density as utils_eval_conditional_density
 
 
 def eval_conditional_density(

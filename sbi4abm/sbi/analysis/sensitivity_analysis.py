@@ -14,7 +14,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils import data
 from torch.utils.data.sampler import SubsetRandomSampler
 
-from sbi.utils.sbiutils import handle_invalid_x, standardizing_net
+from sbi4abm.sbi.utils.sbiutils import handle_invalid_x, standardizing_net
 
 
 class Destandardize(nn.Module):

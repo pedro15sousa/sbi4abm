@@ -92,13 +92,14 @@ def standardizing_transform(
     Returns:
         Affine transform for z-scoring
     """
-
+    print("Data: ", batch_t)
     is_valid_t, *_ = handle_invalid_x(batch_t, True)
 
     t_mean = torch.mean(batch_t[is_valid_t], dim=0)
     t_std = torch.std(batch_t[is_valid_t], dim=0)
     t_std[t_std < min_std] = min_std
-
+    print("Mean: ", t_mean)
+    print("STD: ", t_std)
     return transforms.AffineTransform(shift=-t_mean / t_std, scale=1 / t_std)
 
 

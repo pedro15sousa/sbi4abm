@@ -6,7 +6,7 @@ from sbi4abm.sbi import utils
 import time
 import torch
 
-from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, MVGBM
+from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, MVGBM, Flocking
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -18,7 +18,6 @@ class Simulator:
 		self.T = T
 
 	def __call__(self, pars):
-
 		x = self.model.simulate(pars=pars, T=self.T)
 		if len(x.shape) == 1:
 			x = np.expand_dims(x, axis=-1)
@@ -36,6 +35,8 @@ def _name2T(name):
 		T = 100
 	elif name == "hop":
 		T = 25#50
+	elif name == "flocking":
+		T = 200
 	return T
 
 def _load_simulator(task_name):
@@ -53,6 +54,8 @@ def _load_simulator(task_name):
 		model = Hopfield.Model(N=50, K=2, initial_state=initial_state)
 	elif task_name == "mvgbm":
 		model = MVGBM.Model()
+	elif task_name == "flocking":
+		model = Flocking.Model()
 
 	simulator = Simulator(model, _name2T(task_name))
 
@@ -78,6 +81,9 @@ def _load_prior(task_name):
 	elif task_name == "mvgbm":
 		prior = utils.BoxUniform(low=torch.tensor([-1.,-1.,-1.]),
 								 high=torch.tensor([1., 1., 1.]))
+	elif task_name == "flocking":
+		prior = utils.BoxUniform(low=torch.tensor([-1.,-1.,-1.,-1.]),
+								 high=torch.tensor([1., 1., 1.,1.]))
 	return prior
 	
 def _load_dataset(task_name):
@@ -94,6 +100,8 @@ def _load_dataset(task_name):
 		y = np.load(os.path.join(this_dir, "../data/Hopfield/small_graph_correct.npy"))
 	elif task_name == "mvgbm":
 		y = np.loadtxt(os.path.join(this_dir, "../data/MVGBM/obs.txt"))[1:]
+	elif task_name == "flocking":
+		y = np.loadtxt(os.path.join(this_dir, "../data/Flocking/obs.txt"))
 	return y
 
 def _load_true_pars(task_name):
@@ -110,6 +118,8 @@ def _load_true_pars(task_name):
 		theta = np.array([1., 0.8, 0.5])
 	elif task_name == "mvgbm":
 		theta = np.array([0.2,-0.5,0.])
+	elif task_name == "flocking":
+		theta = np.array([0.25, 0.15, 0.45, 0.5])
 	return theta
 
 def load_task(task_name):

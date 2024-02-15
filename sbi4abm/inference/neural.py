@@ -42,6 +42,8 @@ def create_density_estimator(embedding_kwargs, density_estimator):
 	# If it's a conditional density estimator, assume it's for posterior estimation.
 	# Then just use default settings (since these are from benchmarking paper)
 	if density_estimator in ["maf", "nsf", "made", "mdn"]:
+		z_score_x = False
+		print(z_score_x)
 		density_estimator = utils.posterior_nn(model=density_estimator,
 											   embedding_net=embedding_net,
 											   z_score_x=z_score_x)

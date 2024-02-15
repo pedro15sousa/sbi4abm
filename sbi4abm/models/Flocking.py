@@ -95,35 +95,67 @@ class BoidsModel(ap.Model):
 
 class Model:
 
-    def __init__(self, parameters):
-        self.parameters = parameters
+    def __init__(self):
+        self.parameters = {
+            'size': 50,
+            'seed': 123,
+            'steps': 200,
+            'ndim': 2,
+            'population': 200,
+            'inner_radius': 3,
+            'outer_radius': 10,
+            'border_distance': 15,
+            'cohesion_strength': 0.25,
+            'seperation_strength': 0.15,
+            'alignment_strength': 0.45,
+            'border_strength': 0.5
+        }
         self.model = BoidsModel
 
     def convert_to_tensor(self, results):
-        # Convert DataFrame to numpy array
-        numpy_array = results.variables.BoidsModel.to_numpy()
-
-        # Reshape the numpy array to have dimensions (num_timestamps, num_agents, 2)
-        # Assuming that each cell in the DataFrame is a tuple (x, y)
-        reshaped_array = numpy_array.reshape((numpy_array.shape[0], numpy_array.shape[1], 2))
-
+        numpy_array = np.array(results.variables.BoidsModel.to_numpy().tolist())
         # Convert numpy array to PyTorch tensor
-        tensor = torch.from_numpy(reshaped_array).float()
+        # tensor = torch.from_numpy(numpy_array).float()
+        return numpy_array
 
-        return tensor
+    def simulate(self, pars, T=None, seed=None):
 
-    def simulate(self, comb_params, iters, n_jobs, pars, T=None, seed=None):
-
-        if comb_params is not None:
-            parameters_multi = dict(self.parameters)
-            parameters_multi.update(comb_params)
-            sample = ap.Sample(parameters_multi)
-
-            exp = ap.Experiment(self.model, sample, iterations=iters)
-            results = exp.run(n_jobs, verbose=5)
+        if not (pars is None):
+            cohesion_stren, seperation_stren, alignment_stren, border_stren = [float(p) for p in pars]
         else:
-            model = self.model(self.parameters)
-            results = model.run()
+            cohesion_stren, seperation_stren, alignment_stren, border_stren = 0.25, 0.15, 0.45, 0.5
+
+        if not (T is None):
+            assert isinstance(T, int) and (T > 0), "T must be positive int"
+        else:
+            T = 200
+
+        comb_params = {
+            'steps': T,
+            'cohesion_strength': cohesion_stren,
+            'seperation_strength': seperation_stren,
+            'alignment_strength': alignment_stren,
+            'border_strength': border_stren
+        }
+        
+        print("Thetas: ", comb_params)
+
+        parameters_multi = dict(self.parameters)
+        parameters_multi.update(comb_params)
+
+        model = self.model(parameters_multi)
+        results = model.run()
+
+        # if comb_params is not None:
+        #     parameters_multi = dict(self.parameters)
+        #     parameters_multi.update(comb_params)
+        #     sample = ap.Sample(parameters_multi)
+
+        #     exp = ap.Experiment(self.model, sample, iterations=iters)
+        #     results = exp.run(n_jobs, verbose=5)
+        # else:
+        #     model = self.model(self.parameters)
+        #     results = model.run()
 
         results.save()
         y = self.convert_to_tensor(results)
