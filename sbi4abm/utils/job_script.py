@@ -96,7 +96,12 @@ class Summariser1D:
 		return self.summarise(x)
 
 	def summarise(self, x):
-		final_state = x[-1]
+		if x.ndim == 2:
+			print("True data (final state).")
+			final_state = x
+		else:
+			final_state = x[-1]
+			
 		center = np.mean(final_state, axis=0)
 		final_cohesion = np.mean([np.linalg.norm(agent - center) for agent in final_state])
 
@@ -106,11 +111,14 @@ class Summariser1D:
 
 		cohesion_separation_ratio = final_cohesion / final_separation_std
 
+		flock_density = 1 / final_separation_std if final_separation_std != 0 else float('inf')
+
 		sx = np.array([
 			final_cohesion,
 			final_separation_avg,
 			final_separation_std,
-			cohesion_separation_ratio
+			cohesion_separation_ratio,
+			flock_density
 		])
 
 		return sx

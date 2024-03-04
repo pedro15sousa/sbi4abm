@@ -82,7 +82,7 @@ def _load_prior(task_name):
 		prior = utils.BoxUniform(low=torch.tensor([-1.,-1.,-1.]),
 								 high=torch.tensor([1., 1., 1.]))
 	elif task_name == "flocking":
-		prior = utils.BoxUniform(low=torch.tensor([-1.,-1.,-1.,-1.]),
+		prior = utils.BoxUniform(low=torch.tensor([0.,0.,0.,0.]),
 								 high=torch.tensor([1., 1., 1.,1.]))
 	return prior
 	

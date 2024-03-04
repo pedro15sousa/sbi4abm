@@ -137,8 +137,8 @@ class Model:
             'alignment_strength': alignment_stren,
             'border_strength': border_stren
         }
-        
-        print("Thetas: ", comb_params)
+
+        print("THETAs: ", comb_params)
 
         parameters_multi = dict(self.parameters)
         parameters_multi.update(comb_params)
@@ -157,7 +157,7 @@ class Model:
         #     model = self.model(self.parameters)
         #     results = model.run()
 
-        results.save()
+        # results.save()
         y = self.convert_to_tensor(results)
         return y
 

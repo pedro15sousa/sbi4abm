@@ -3,7 +3,7 @@ from sbi4abm.sbi import inference, utils
 from sbi4abm.sbi.inference import SNPE, SNRE, SNRE_A, simulate_for_sbi, prepare_for_sbi
 from torch import nn
 
-from sbi4abm.networks import graph, recurrent_graphs, time_series
+# from sbi4abm.networks import graph, recurrent_graphs, time_series
 from sbi4abm.utils import io, sampling
 
 
@@ -23,32 +23,33 @@ def create_density_estimator(embedding_kwargs, density_estimator):
 
 	if embedding_kwargs is None:
 		embedding_net = nn.Identity()
-	else:
-		flavour = embedding_kwargs['flavour']
-		if flavour == "gcn":
-			# DON'T HARD-CODE THIS
-			N_FEATURES = 1
-			embedding_kwargs['input_dim'] = N_FEATURES
-			embedding_net = graph.GCNEncoder(**embedding_kwargs)
-			z_score_x = False
-		elif flavour == "rgcn":
-			embedding_net = recurrent_graphs.GConvGRUEmbedding(**embedding_kwargs)
-			z_score_x = False
-		else:
-			embedding_net = time_series.RNN(**embedding_kwargs)
-			z_score_x = True
+	# else:
+	# 	flavour = embedding_kwargs['flavour']
+	# 	print(flavour)
+	# 	if flavour == "gcn":
+	# 		# DON'T HARD-CODE THIS
+	# 		N_FEATURES = 1
+	# 		embedding_kwargs['input_dim'] = N_FEATURES
+	# 		embedding_net = graph.GCNEncoder(**embedding_kwargs)
+	# 		z_score_x = False
+	# 	elif flavour == "rgcn":
+	# 		embedding_net = recurrent_graphs.GConvGRUEmbedding(**embedding_kwargs)
+	# 		z_score_x = False
+	# 	else:
+	# 		embedding_net = time_series.RNN(**embedding_kwargs)
+	# 		z_score_x = True
 	num_pars = sum(p.numel() for p in embedding_net.parameters() if p.requires_grad)
 	print("Embedding net has {0} trainable parameters".format(num_pars))
 	# If it's a conditional density estimator, assume it's for posterior estimation.
 	# Then just use default settings (since these are from benchmarking paper)
 	if density_estimator in ["maf", "nsf", "made", "mdn"]:
 		z_score_x = False
-		print(z_score_x)
 		density_estimator = utils.posterior_nn(model=density_estimator,
 											   embedding_net=embedding_net,
 											   z_score_x=z_score_x)
 	# Else it's a ratio estimator (classifier), so just use default settings again
 	elif density_estimator in ["linear", "mlp", "resnet"]:
+		z_score_x = False
 		density_estimator = utils.get_nn_models.classifier_nn(density_estimator,
 															  embedding_net_x=embedding_net,
 															  z_score_x=z_score_x)
@@ -81,6 +82,8 @@ def sbi_training(simulator,
 	for sim_count in n_sims:
 		theta, x = simulate_for_sbi(sbi_simulator, proposal, num_simulations=sim_count,
 									num_workers=num_workers)
+		print("THETA: ", theta)
+		print("X: ", x)
 		# This is usually for reshaping for the embedding net
 		x = sim_postprocess(x)
 		print("Shape of simulated batch of data", x.size())
