@@ -348,3 +348,27 @@ def assert_all_finite(quantity: Tensor, description: str = "tensor") -> None:
 
     msg = f"NaN/Inf present in {description}."
     assert torch.isfinite(quantity).all(), msg
+
+
+def check_if_prior_on_device(
+    device: Union[str, torch.device], prior: Optional[Any] = None
+) -> None:
+    """Try to sample from the prior, and check that the returned data is on the correct
+    trainin device. If the prior is `None`, simplys pass.
+
+    Args:
+        device: target torch training device
+        prior: any simulator outputing torch `Tensor`
+    """
+    if prior is None:
+        pass
+    else:
+        prior_device = prior.sample((1,)).device
+        training_device = torch.zeros(1, device=device).device
+        assert prior_device == training_device, (
+            f"Prior device '{prior_device}' must match training device "
+            f"'{training_device}'. When training on GPU make sure to "
+            "pass a prior initialized on the GPU as well, e.g., "
+            "prior = torch.distributions.Normal"
+            "(torch.zeros(2, device='cuda'), scale=1.0)`."
+        )

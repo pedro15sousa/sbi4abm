@@ -10,7 +10,7 @@ import torch
 import torch.distributions.transforms as torch_tf
 from torch import Tensor, nn
 
-from sbi4abm.sbi.inference.posteriors.base_posterior import NeuralPosterior
+from sbi4abm.sbi.inference.posteriors.new_base_posterior import NeuralPosterior
 from sbi4abm.sbi.types import Shape
 from sbi4abm.sbi.utils import del_entries, mcmc_transform, rejection_sample
 from sbi4abm.sbi.utils.torchutils import atleast_2d, ensure_theta_batched

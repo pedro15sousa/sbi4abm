@@ -2,10 +2,12 @@
 # under the Affero General Public License v3, see <https://www.gnu.org/licenses/>.
 
 import logging
+import random
 import warnings
 from math import pi
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
 import pyknos.nflows.transforms as transforms
 from pyro.distributions import Empirical
@@ -18,6 +20,7 @@ from tqdm.auto import tqdm
 
 from sbi4abm.sbi import utils as utils
 from sbi4abm.sbi.utils.torchutils import BoxUniform, atleast_2d
+from sbi4abm.sbi.types import TorchTransform
 
 
 def warn_if_zscoring_changes_data(x: Tensor, duplicate_tolerance: float = 0.1) -> None:
@@ -883,6 +886,40 @@ def within_support(distribution: Any, samples: Tensor) -> Tensor:
     # custom wrapper distribution's.
     except (NotImplementedError, AttributeError):
         return torch.isfinite(distribution.log_prob(samples))
+    
+
+def match_theta_and_x_batch_shapes(theta: Tensor, x: Tensor) -> Tuple[Tensor, Tensor]:
+    r"""Return $\theta$ and `x` with batch shape matched to each other.
+    When `x` is just a single observation it is repeated for all entries in the
+    batch of $\theta$s. When there is a batch of multiple `x`, i.e., iid `x`, then
+    individual `x` are repeated in the pattern AABBCC and individual $\theta$ are
+    repeated in the pattern ABCABC to cover all combinations.
+    This is needed in nflows in order to have matching shapes of theta and context
+    `x` when evaluating the neural network.
+    Args:
+        x: (a batch of iid) data
+        theta: a batch of parameters
+    Returns:
+        theta: with shape (theta_batch_size * x_batch_size, *theta_shape)
+        x: with shape (theta_batch_size * x_batch_size, *x_shape)
+    """
+
+    # Theta and x are ensured to have a batch dim, get the shape.
+    theta_batch_size, *theta_shape = theta.shape
+    x_batch_size, *x_shape = x.shape
+
+    # Repeat iid trials as AABBCC.
+    x_repeated = x.repeat_interleave(theta_batch_size, dim=0)
+    # Repeat theta as ABCABC.
+    theta_repeated = theta.repeat(x_batch_size, 1)
+
+    # Double check: batch size for log prob evaluation must match.
+    assert x_repeated.shape == torch.Size([theta_batch_size * x_batch_size, *x_shape])
+    assert theta_repeated.shape == torch.Size(
+        [theta_batch_size * x_batch_size, *theta_shape]
+    )
+
+    return theta_repeated, x_repeated
 
 
 def mcmc_transform(
@@ -1010,3 +1047,173 @@ def mog_log_prob(
     exponent = -0.5 * utils.batched_mixture_vmv(precisions_pp, theta_minus_mean)
 
     return torch.logsumexp(weights + constant + log_det + exponent, dim=-1)
+
+
+def gradient_ascent(
+    potential_fn: Callable,
+    inits: Tensor,
+    theta_transform: Optional[torch_tf.Transform] = None,
+    num_iter: int = 1_000,
+    num_to_optimize: int = 100,
+    learning_rate: float = 0.01,
+    save_best_every: int = 10,
+    show_progress_bars: bool = False,
+    interruption_note: str = "",
+) -> Tuple[Tensor, Tensor]:
+    """Returns the `argmax` and `max` of a `potential_fn` via gradient ascent.
+
+    The method can be interrupted (Ctrl-C) when the user sees that the potential_fn
+    converges. The currently best estimate will be returned.
+
+    The maximum is obtained by running gradient ascent from given starting parameters.
+    After the optimization is done, we select the parameter set that has the highest
+    `potential_fn` value after the optimization.
+
+    Warning: The default values used by this function are not well-tested. They might
+    require hand-tuning for the problem at hand.
+
+    TODO: find a way to tell pyright that transform(...) does not return None.
+
+    Args:
+        potential_fn: The function on which to optimize.
+        inits: The initial parameters at which to start the gradient ascent steps.
+        theta_transform: If passed, this transformation will be applied during the
+            optimization.
+        num_iter: Number of optimization steps that the algorithm takes
+            to find the MAP.
+        num_to_optimize: From the drawn `num_init_samples`, use the `num_to_optimize`
+            with highest log-probability as the initial points for the optimization.
+        learning_rate: Learning rate of the optimizer.
+        save_best_every: The best log-probability is computed, saved in the
+            `map`-attribute, and printed every `save_best_every`-th iteration.
+            Computing the best log-probability creates a significant overhead (thus,
+            the default is `10`.)
+        show_progress_bars: Whether to show a progressbar for the optimization.
+        interruption_note: The message printed when the user interrupts the
+            optimization.
+
+    Returns:
+        The `argmax` and `max` of the `potential_fn`.
+    """
+
+    if theta_transform is None:
+        theta_transform = torch_tf.IndependentTransform(
+            torch_tf.identity_transform, reinterpreted_batch_ndims=1
+        )
+    else:
+        theta_transform = theta_transform
+
+    init_probs = potential_fn(inits).detach()
+
+    # Pick the `num_to_optimize` best init locations.
+    sort_indices = torch.argsort(init_probs, dim=0)
+    sorted_inits = inits[sort_indices]
+    optimize_inits = sorted_inits[-num_to_optimize:]
+
+    # The `_overall` variables store data accross the iterations, whereas the
+    # `_iter` variables contain data exclusively extracted from the current
+    # iteration.
+    best_log_prob_iter = torch.max(init_probs)
+    best_theta_iter = sorted_inits[-1]
+    best_theta_overall = best_theta_iter.detach().clone()
+    best_log_prob_overall = best_log_prob_iter.detach().clone()
+
+    argmax_ = best_theta_overall
+    max_val = best_log_prob_overall
+
+    optimize_inits = theta_transform(optimize_inits)
+    optimize_inits.requires_grad_(True)  # type: ignore
+    optimizer = optim.Adam([optimize_inits], lr=learning_rate)  # type: ignore
+
+    iter_ = 0
+
+    # Try-except block in case the user interrupts the program and wants to fall
+    # back on the last saved `.map_`. We want to avoid a long error-message here.
+    try:
+        while iter_ < num_iter:
+            optimizer.zero_grad()
+            probs = potential_fn(theta_transform.inv(optimize_inits)).squeeze()
+            loss = -probs.sum()
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                if iter_ % save_best_every == 0 or iter_ == num_iter - 1:
+                    # Evaluate the optimized locations and pick the best one.
+                    log_probs_of_optimized = potential_fn(
+                        theta_transform.inv(optimize_inits)
+                    )
+                    best_theta_iter = optimize_inits[  # type: ignore
+                        torch.argmax(log_probs_of_optimized)
+                    ].view(1, -1)
+                    best_log_prob_iter = potential_fn(
+                        theta_transform.inv(best_theta_iter)
+                    )
+                    if best_log_prob_iter > best_log_prob_overall:
+                        best_theta_overall = best_theta_iter.detach().clone()
+                        best_log_prob_overall = best_log_prob_iter.detach().clone()
+
+                if show_progress_bars:
+                    print(
+                        "\r",
+                        f"Optimizing MAP estimate. Iterations: {iter_+1} / "
+                        f"{num_iter}. Performance in iteration "
+                        f"{divmod(iter_+1, save_best_every)[0] * save_best_every}: "
+                        f"{best_log_prob_iter.item():.2f} (= unnormalized log-prob)",
+                        end="",
+                    )
+                argmax_ = theta_transform.inv(best_theta_overall)
+                max_val = best_log_prob_overall
+
+            iter_ += 1
+
+    except KeyboardInterrupt:
+        interruption = f"Optimization was interrupted after {iter_} iterations. "
+        print(interruption + interruption_note)
+        return argmax_, max_val  # type: ignore
+
+    return theta_transform.inv(best_theta_overall), max_val  # type: ignore
+
+
+def nle_nre_apt_msg_on_invalid_x(
+    num_nans: int, num_infs: int, exclude_invalid_x: bool, algorithm: str
+) -> None:
+    """Warn or raise if there are NaNs or Infs, appropriate to SNLE, SNRE, or APT.
+
+    This will raise an error in the default case of `exclude_invalid_x=False` since
+    SNLE/SNRE/APT do not allow to discard invalid simulations (Glöckler et al. 2021).
+    If `exclude_invalid_x` has explicitly been set to `True` by the user, this
+    function will give a warning about the systematic error.
+    """
+
+    if num_nans + num_infs > 0:
+        if exclude_invalid_x:
+            logging.warn(
+                f"Found {num_nans} NaN simulations and {num_infs} Inf simulations."
+                f"These will be discarded from training due to "
+                f"`exclude_invalid_x=True`. Please be aware that this gives "
+                f"systematically wrong results for {algorithm} and is only recommended "
+                f"for expert users."
+            )
+        else:
+            raise ValueError(
+                f"Found {num_nans} NaN simulations and {num_infs} Inf simulations."
+                f"{algorithm} does not allow invalid simulations."
+                f"Replace the invalid values with an unreasonably low or high value."
+            )
+        
+def seed_all_backends(seed: Optional[Union[int, Tensor]] = None) -> None:
+    """Sets all python, numpy and pytorch seeds."""
+
+    if seed is None:
+        seed = int(torch.randint(1_000_000, size=(1,)))
+    else:
+        # Cast Tensor to int (required by math.random since Python 3.11)
+        seed = int(seed)
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True  # type: ignore
+    torch.backends.cudnn.benchmark = False  # type: ignore

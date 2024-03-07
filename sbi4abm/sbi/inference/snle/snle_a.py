@@ -4,7 +4,7 @@
 
 from typing import Any, Callable, Dict, Optional, Union
 
-from sbi4abm.sbi.inference.posteriors.base_posterior import NeuralPosterior
+from sbi4abm.sbi.inference.posteriors.new_base_posterior import NeuralPosterior
 from sbi4abm.sbi.inference.snle.snle_base import LikelihoodEstimator
 from sbi4abm.sbi.types import TensorboardSummaryWriter
 from sbi4abm.sbi.utils import del_entries

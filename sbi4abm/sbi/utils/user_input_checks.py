@@ -13,6 +13,7 @@ from scipy.stats._multivariate import multi_rv_frozen
 from torch import Tensor, float32, nn
 from torch.distributions import Distribution, Uniform
 
+from sbi4abm.sbi.types import Array
 from sbi4abm.sbi.utils.sbiutils import warn_on_iid_x, within_support
 from sbi4abm.sbi.utils.torchutils import BoxUniform, atleast_2d
 from sbi4abm.sbi.utils.user_input_checks_utils import (
@@ -22,6 +23,32 @@ from sbi4abm.sbi.utils.user_input_checks_utils import (
     ScipyPytorchWrapper,
 )
 
+def check_prior(prior: Any) -> None:
+    """Assert that prior is a PyTorch distribution (or pass if None)."""
+
+    if prior is None:
+        pass
+    else:
+        assert isinstance(
+            prior, Distribution
+        ), """Prior must be a PyTorch Distribution. See FAQ 7 for more details or use
+        `sbi.utils.user_input_checks.process_prior` for wrapping scipy and lists of
+        independent priors."""
+
+def check_data_device(datum_1: torch.Tensor, datum_2: torch.Tensor) -> None:
+    """Checks if two tensors have the seme device. Fails if there is a device
+    discrepancy
+
+    Args:
+        datum_1: torch `Tensor`
+        datum_2: torch `Tensor`
+    """
+    assert datum_1.device == datum_2.device, (
+        "Mismatch in fed data's device: "
+        f"datum_1 has device '{datum_1.device}' whereas "
+        f"datum_2 has device '{datum_2.device}'. Please "
+        "use data from a common device."
+    )
 
 def process_prior(prior) -> Tuple[Distribution, int, bool]:
     """Return PyTorch distribution-like prior from user-provided prior.
@@ -437,8 +464,43 @@ def get_batch_loop_simulator(simulator: Callable) -> Callable:
     return batch_loop_simulator
 
 
-def process_x(x: Tensor, x_shape: torch.Size, allow_iid_x: bool = False) -> Tensor:
+# def process_x(x: Tensor, x_shape: torch.Size, allow_iid_x: bool = False) -> Tensor:
+#     """Return observed data adapted to match sbi's shape and type requirements.
+
+#     Args:
+#         x: Observed data as provided by the user.
+#         x_shape: Prescribed shape - either directly provided by the user at init or
+#             inferred by sbi by running a simulation and checking the output.
+#         allow_iid_x: Whether multiple trials in x are allowed.
+
+#     Returns:
+#         x: Observed data with shape ready for usage in sbi.
+#     """
+
+#     x = torch.as_tensor(atleast_2d(x), dtype=float32)
+
+#     input_x_shape = x.shape
+#     if not allow_iid_x:
+#         check_for_possibly_batched_x_shape(input_x_shape)
+#         start_idx = 0
+#     else:
+#         warn_on_iid_x(num_trials=input_x_shape[0])
+#         start_idx = 1
+
+#     # Number of trials can change for every new x, but single trial x shape must match.
+#     assert input_x_shape[start_idx:] == x_shape[start_idx:], (
+#         f"Observed data shape ({input_x_shape[start_idx:]}) must match "
+#         f"the shape of simulated data x ({x_shape[start_idx:]})."
+#     )
+
+#     return x
+
+def process_x(
+    x: Array, x_shape: Optional[torch.Size] = None, allow_iid_x: bool = False
+) -> Tensor:
     """Return observed data adapted to match sbi's shape and type requirements.
+
+    If `x_shape` is `None`, the shape is not checked.
 
     Args:
         x: Observed data as provided by the user.
@@ -450,7 +512,11 @@ def process_x(x: Tensor, x_shape: torch.Size, allow_iid_x: bool = False) -> Tens
         x: Observed data with shape ready for usage in sbi.
     """
 
-    x = torch.as_tensor(atleast_2d(x), dtype=float32)
+    x = atleast_2d(torch.as_tensor(x, dtype=float32))
+
+    # If x_shape is provided, we can fix a missing batch dim for >1D data.
+    if x_shape is not None and len(x_shape) > len(x.shape):
+        x = x.unsqueeze(0)
 
     input_x_shape = x.shape
     if not allow_iid_x:
@@ -460,14 +526,14 @@ def process_x(x: Tensor, x_shape: torch.Size, allow_iid_x: bool = False) -> Tens
         warn_on_iid_x(num_trials=input_x_shape[0])
         start_idx = 1
 
-    # Number of trials can change for every new x, but single trial x shape must match.
-    assert input_x_shape[start_idx:] == x_shape[start_idx:], (
-        f"Observed data shape ({input_x_shape[start_idx:]}) must match "
-        f"the shape of simulated data x ({x_shape[start_idx:]})."
-    )
-
+    if x_shape is not None:
+        # Number of trials can change for every new x, but single trial x shape must
+        # match.
+        assert input_x_shape[start_idx:] == x_shape[start_idx:], (
+            f"Observed data shape ({input_x_shape[start_idx:]}) must match "
+            f"the shape of simulated data x ({x_shape[start_idx:]})."
+        )
     return x
-
 
 def prepare_for_sbi(simulator: Callable, prior) -> Tuple[Callable, Distribution]:
     """Prepare simulator, prior and for usage in sbi.
@@ -551,8 +617,53 @@ def check_estimator_arg(estimator: Union[str, Callable]) -> None:
     )
 
 
+# def validate_theta_and_x(
+#     theta: Any, x: Any, training_device: str = "cpu"
+# ) -> Tuple[Tensor, Tensor]:
+#     r"""
+#     Checks if the passed $(\theta, x)$ are valid.
+
+#     Specifically, we check:
+#     1) If they are (torch) tensors.
+#     2) If they have the same batchsize.
+#     3) If they are of `dtype=float32`.
+
+#     Raises:
+#         AssertionError: If theta or x are not torch.Tensor-like,
+#         do not yield the same batchsize and do not have dtype==float32.
+
+#     Args:
+#         theta: Parameters.
+#         x: Simulation outputs.
+#         training_device: Training device for net.
+#     """
+#     assert isinstance(theta, Tensor), "Parameters theta must be a `torch.Tensor`."
+#     assert isinstance(x, Tensor), "Simulator output must be a `torch.Tensor`."
+
+#     assert theta.shape[0] == x.shape[0], (
+#         f"Number of parameter sets (={theta.shape[0]} must match the number of "
+#         f"simulation outputs (={x.shape[0]})"
+#     )
+
+#     # I did not fuse these asserts with the `isinstance(x, Tensor)` asserts in order
+#     # to give more explicit errors.
+#     assert theta.dtype == float32, "Type of parameters must be float32."
+#     assert x.dtype == float32, "Type of simulator outputs must be float32."
+
+#     simulations_device = f"{x.device.type}:{x.device.index}"
+#     if "cpu" not in simulations_device and "cpu" in training_device:
+#         logging.warning(
+#             f"""Simulations are on {simulations_device} but training device is
+#             set to {training_device}, moving data to device to {training_device}."""
+#         )
+#         x = x.to(training_device)
+#         theta = theta.to(training_device)
+
+#     return theta, x
+    
+
 def validate_theta_and_x(
-    theta: Any, x: Any, training_device: str = "cpu"
+    theta: Any, x: Any, data_device: str = "cpu", training_device: str = "cpu"
 ) -> Tuple[Tensor, Tensor]:
     r"""
     Checks if the passed $(\theta, x)$ are valid.
@@ -562,6 +673,10 @@ def validate_theta_and_x(
     2) If they have the same batchsize.
     3) If they are of `dtype=float32`.
 
+    Additionally, We move the data to the specified `data_device`. This is where the
+    data is stored and can be separate from `training_device`, where the
+    computations for training are performed.
+
     Raises:
         AssertionError: If theta or x are not torch.Tensor-like,
         do not yield the same batchsize and do not have dtype==float32.
@@ -569,6 +684,7 @@ def validate_theta_and_x(
     Args:
         theta: Parameters.
         x: Simulation outputs.
+        data_device: Device where data is stored.
         training_device: Training device for net.
     """
     assert isinstance(theta, Tensor), "Parameters theta must be a `torch.Tensor`."
@@ -584,16 +700,24 @@ def validate_theta_and_x(
     assert theta.dtype == float32, "Type of parameters must be float32."
     assert x.dtype == float32, "Type of simulator outputs must be float32."
 
-    simulations_device = f"{x.device.type}:{x.device.index}"
-    if "cpu" not in simulations_device and "cpu" in training_device:
-        logging.warning(
-            f"""Simulations are on {simulations_device} but training device is
-            set to {training_device}, moving data to device to {training_device}."""
+    if str(x.device) != data_device:
+        warnings.warn(
+            f"Data x has device '{x.device}'."
+            f"Moving x to the data_device '{data_device}'."
+            f"Training will proceed on device '{training_device}'."
         )
-        x = x.to(training_device)
-        theta = theta.to(training_device)
+        x = x.to(data_device)
+
+    if str(theta.device) != data_device:
+        warnings.warn(
+            f"Parameters theta has device '{theta.device}'. "
+            f"Moving theta to the data_device '{data_device}'."
+            f"Training will proceed on device '{training_device}'."
+        )
+        theta = theta.to(data_device)
 
     return theta, x
+
 
 
 def test_posterior_net_for_multi_d_x(net: nn.Module, theta: Tensor, x: Tensor) -> None:

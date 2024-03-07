@@ -114,9 +114,6 @@ class Summariser1D:
 		flock_density = 1 / final_separation_std if final_separation_std != 0 else float('inf')
 
 		sx = np.array([
-			final_cohesion,
-			final_separation_avg,
-			final_separation_std,
 			cohesion_separation_ratio,
 			flock_density
 		])
@@ -245,6 +242,7 @@ def _neural_prepare_estimator_observation(args, y, simulator):
 	density_estimator, z_score_x = neural.create_density_estimator(embedding_kwargs,
 														de_name)
 	sbi_method = _de2class(de_name)
+	print("SBI method: ", sbi_method)
 	return density_estimator, sbi_method, y, simulator, sim_pp, z_score_x
 
 def _get_postprocessor(args):

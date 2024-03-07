@@ -5,34 +5,41 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import torch
 from torch import Tensor
+from torch.distributions import Distribution
 from torch.utils import data
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.tensorboard.writer import SummaryWriter
 
 import sbi4abm.sbi.inference
-from sbi4abm.sbi.inference.posteriors.base_posterior import NeuralPosterior
+from sbi4abm.sbi.inference.posteriors.new_base_posterior import NeuralPosterior
 from sbi4abm.sbi.simulators.simutils import simulate_in_batches
 from sbi4abm.sbi.utils import (
+    check_prior,
     get_log_root,
     handle_invalid_x,
+    mask_sims_from_prior,
+    nle_nre_apt_msg_on_invalid_x,
+    validate_theta_and_x,
     warn_if_zscoring_changes_data,
-    warn_on_invalid_x,
-    warn_on_invalid_x_for_snpec_leakage,
 )
 from sbi4abm.sbi.utils.sbiutils import get_simulations_since_round
-from sbi4abm.sbi.utils.torchutils import process_device
+from sbi4abm.sbi.utils.torchutils import check_if_prior_on_device, process_device
 from sbi4abm.sbi.utils.user_input_checks import prepare_for_sbi
 
 
 def infer(
-    simulator: Callable, prior, method: str, num_simulations: int, num_workers: int = 1
+    simulator: Callable,
+    prior: Distribution,
+    method: str,
+    num_simulations: int,
+    num_workers: int = 1,
 ) -> NeuralPosterior:
-    r"""
-    Return posterior distribution by running simulation-based inference.
+    r"""Runs simulation-based inference and returns the posterior.
 
     This function provides a simple interface to run sbi. Inference is run for a single
     round and hence the returned posterior $p(\theta|x)$ can be sampled and evaluated
@@ -41,7 +48,7 @@ def infer(
     The scope of this function is limited to the most essential features of sbi. For
     more flexibility (e.g. multi-round inference, different density estimators) please
     use the flexible interface described here:
-    https://www.mackelab.org/sbi/tutorial/02_flexible_interface/
+    https://sbi-dev.github.io/sbi/tutorial/02_flexible_interface/
 
     Args:
         simulator: A function that takes parameters $\theta$ and maps them to
@@ -61,7 +68,7 @@ def infer(
     """
 
     try:
-        method_fun: Callable = getattr(sbi.inference, method.upper())
+        method_fun: Callable = getattr(sbi4abm.sbi.inference, method.upper())
     except AttributeError:
         raise NameError(
             "Method not available. `method` must be one of 'SNPE', 'SNLE', 'SNRE'."
@@ -69,7 +76,7 @@ def infer(
 
     simulator, prior = prepare_for_sbi(simulator, prior)
 
-    inference = method_fun(prior)
+    inference = method_fun(prior=prior)
     theta, x = simulate_for_sbi(
         simulator=simulator,
         proposal=prior,
@@ -87,21 +94,18 @@ class NeuralInference(ABC):
 
     def __init__(
         self,
-        prior: Optional[Any] = None,
+        prior: Optional[Distribution] = None,
         device: str = "cpu",
         logging_level: Union[int, str] = "WARNING",
         summary_writer: Optional[SummaryWriter] = None,
         show_progress_bars: bool = True,
-        **unused_args,
     ):
-        r"""
-        Base class for inference methods.
+        r"""Base class for inference methods.
 
         Args:
             prior: A probability distribution that expresses prior knowledge about the
-                parameters, e.g. which ranges are meaningful for them. Any
-                object with `.log_prob()`and `.sample()` (for example, a PyTorch
-                distribution) can be used.
+                parameters, e.g. which ranges are meaningful for them. Must be a PyTorch
+                distribution, see FAQ for details on how to use custom distributions.
             device: torch device on which to train the neural net and on which to
                 perform all posterior operations, e.g. gpu or cpu.
             logging_level: Minimum severity of messages to log. One of the strings
@@ -110,26 +114,13 @@ class NeuralInference(ABC):
                 file location (default is `<current working directory>/logs`.)
             show_progress_bars: Whether to show a progressbar during simulation and
                 sampling.
-            unused_args: Absorbs additional arguments. No entries will be used. If it
-                is not empty, we warn. In future versions, when the new interface of
-                0.14.0 is more mature, we will remove this argument.
         """
 
-        self._device = process_device(device, prior=prior)
-
-        if unused_args:
-            warn(
-                f"You passed some keyword arguments that will not be used. "
-                f"Specifically, the unused arguments are: {list(unused_args.keys())}. "
-                f"These arguments might have been supported in sbi "
-                f"versions <0.14.0. Since 0.14.0, the API was changed. Please consult "
-                f"the corresponding pull request on github: "
-                f"https://github.com/mackelab/sbi/pull/378 and tutorials: "
-                f"https://www.mackelab.org/sbi/tutorial/02_flexible_interface/ for "
-                f"further information.",
-            )
-
+        self._device = process_device(device)
+        check_prior(prior)
+        check_if_prior_on_device(self._device, prior)
         self._prior = prior
+
         self._posterior = None
         self._neural_net = None
         self._x_shape = None
@@ -138,13 +129,16 @@ class NeuralInference(ABC):
 
         # Initialize roundwise (theta, x, prior_masks) for storage of parameters,
         # simulations and masks indicating if simulations came from prior.
-        self._theta_roundwise, self._x_roundwise, self._prior_masks = [], [], []
+        self._theta_roundwise = []
+        self._x_roundwise = []
+        self._prior_masks = []
         self._model_bank = []
 
         # Initialize list that indicates the round from which simulations were drawn.
         self._data_round_index = []
 
         self._round = 0
+        self._val_log_prob = float("-Inf")
 
         # XXX We could instantiate here the Posterior for all children. Two problems:
         #     1. We must dispatch to right PotentialProvider for mcmc based on name
@@ -157,83 +151,24 @@ class NeuralInference(ABC):
 
         # Logging during training (by SummaryWriter).
         self._summary = dict(
-            median_observation_distances=[],
-            epochs=[],
-            best_validation_log_probs=[],
+            epochs_trained=[],
+            best_validation_log_prob=[],
             validation_log_probs=[],
-            train_log_probs=[],
+            training_log_probs=[],
             epoch_durations_sec=[],
-        )
-
-    def __call__(self, unused_args):
-        """
-        f"Deprecated. The inference object is no longer callable as of `sbi` v0.14.0. "
-        f"Please consult our website for a tutorial on how to adapt your code: "
-        f"https://www.mackelab.org/sbi/tutorial/02_flexible_interface/ . For "
-        f"further information, see the corresponding pull request on github:
-        f"https://github.com/mackelab/sbi/pull/378.",
-        """
-        raise NameError(
-            f"The inference object is no longer callable as of `sbi` v0.14.0. "
-            f"Please consult the release notes for a tutorial on how to adapt your "
-            f"code: https://github.com/mackelab/sbi/releases/tag/v0.14.0"
-            f"For more information, visit our website: "
-            f"https://www.mackelab.org/sbi/tutorial/02_flexible_interface/ or "
-            f"see the corresponding pull request on github: "
-            f"https://github.com/mackelab/sbi/pull/378.",
-        )
-
-    def provide_presimulated(
-        self, theta: Tensor, x: Tensor, from_round: int = 0
-    ) -> None:
-        r"""
-        Deprecated since sbi 0.14.0.
-
-        Instead of using this, please use `.append_simulations()`. Please consult
-        release notes to see how you can update your code:
-        https://github.com/mackelab/sbi/releases/tag/v0.14.0
-        More information can be found under the corresponding pull request on github:
-        https://github.com/mackelab/sbi/pull/378
-        and tutorials:
-        https://www.mackelab.org/sbi/tutorial/02_flexible_interface/
-
-        Provide external $\theta$ and $x$ to be used for training later on.
-
-        Args:
-            theta: Parameter sets used to generate presimulated data.
-            x: Simulation outputs of presimulated data.
-            from_round: Which round the data was simulated from. `from_round=0` means
-                that the data came from the first round, i.e. the prior.
-        """
-        raise NameError(
-            f"Deprecated since sbi 0.14.0. "
-            f"Instead of using this, please use `.append_simulations()`. Please "
-            f"consult release notes to see how you can update your code: "
-            f"https://github.com/mackelab/sbi/releases/tag/v0.14.0"
-            f"More information can be found under the corresponding pull request on "
-            f"github: "
-            f"https://github.com/mackelab/sbi/pull/378"
-            f"and tutorials: "
-            f"https://www.mackelab.org/sbi/tutorial/02_flexible_interface/",
         )
 
     def get_simulations(
         self,
         starting_round: int = 0,
-        exclude_invalid_x: bool = True,
-        warn_on_invalid: bool = True,
-        z_score_x: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        r"""
-        Returns all $\theta$, $x$, and prior_masks from rounds >= `starting_round`.
+        r"""Returns all $\theta$, $x$, and prior_masks from rounds >= `starting_round`.
 
         If requested, do not return invalid data.
 
         Args:
             starting_round: The earliest round to return samples from (we start counting
                 from zero).
-            exclude_invalid_x: Whether to exclude simulation outputs `x=NaN` or `x=±∞`
-                during training.
             warn_on_invalid: Whether to give out a warning if invalid simulations were
                 found.
 
@@ -250,18 +185,72 @@ class NeuralInference(ABC):
             self._prior_masks, self._data_round_index, starting_round
         )
 
-        # Check for NaNs in simulations.
-        is_valid_x, num_nans, num_infs = handle_invalid_x(x, exclude_invalid_x)
-        if z_score_x:
-            # Check for problematic z-scoring
-            warn_if_zscoring_changes_data(x)
-        if warn_on_invalid:
-            warn_on_invalid_x(num_nans, num_infs, exclude_invalid_x)
-            warn_on_invalid_x_for_snpec_leakage(
-                num_nans, num_infs, exclude_invalid_x, type(self).__name__, self._round
-            )
+        return theta, x, prior_masks
 
-        return theta[is_valid_x], x[is_valid_x], prior_masks[is_valid_x]
+    @abstractmethod
+    def append_simulations(
+        self,
+        theta: Tensor,
+        x: Tensor,
+        exclude_invalid_x: bool = False,
+        from_round: int = 0,
+        algorithm: Optional[str] = None,
+        data_device: Optional[str] = None,
+    ) -> "NeuralInference":
+        r"""Store parameters and simulation outputs to use them for later training.
+
+        Data are stored as entries in lists for each type of variable (parameter/data).
+
+        Stores $\theta$, $x$, prior_masks (indicating if simulations are coming from the
+        prior or not) and an index indicating which round the batch of simulations came
+        from.
+
+        Args:
+            theta: Parameter sets.
+            x: Simulation outputs.
+            exclude_invalid_x: Whether invalid simulations are discarded during
+                training. If `False`, The inference algorithm raises an error when invalid simulations are
+                found. If `True`, invalid simulations are discarded and training
+                can proceed, but this gives systematically wrong results.
+            from_round: Which round the data stemmed from. Round 0 means from the prior.
+                With default settings, this is not used at all for the inference algorithm. Only when
+                the user later on requests `.train(discard_prior_samples=True)`, we
+                use these indices to find which training data stemmed from the prior.
+            algorithm: Which algorithm is used. This is used to give a more informative
+                warning or error message when invalid simulations are found.
+            data_device: Where to store the data, default is on the same device where
+                the training is happening. If training a large dataset on a GPU with not
+                much VRAM can set to 'cpu' to store data on system memory instead.
+        Returns:
+            NeuralInference object (returned so that this function is chainable).
+        """
+
+        is_valid_x, num_nans, num_infs = handle_invalid_x(x, exclude_invalid_x)
+
+        x = x[is_valid_x]
+        theta = theta[is_valid_x]
+
+        # Check for problematic z-scoring
+        warn_if_zscoring_changes_data(x)
+        nle_nre_apt_msg_on_invalid_x(
+            num_nans, num_infs, exclude_invalid_x, algorithm or type(self).__name__
+        )
+
+        if data_device is None:
+            data_device = self._device
+        theta, x = validate_theta_and_x(
+            theta, x, data_device=data_device, training_device=self._device
+        )
+
+        prior_masks = mask_sims_from_prior(int(from_round), theta.size(0))
+
+        self._theta_roundwise.append(theta)
+        self._x_roundwise.append(x)
+        self._prior_masks.append(prior_masks)
+
+        self._data_round_index.append(int(from_round))
+
+        return self
 
     @abstractmethod
     def train(
@@ -275,14 +264,14 @@ class NeuralInference(ABC):
         calibration_kernel: Optional[Callable] = None,
         exclude_invalid_x: bool = True,
         discard_prior_samples: bool = False,
-        retrain_from_scratch_each_round: bool = False,
+        retrain_from_scratch: bool = False,
         show_train_summary: bool = False,
     ) -> NeuralPosterior:
         raise NotImplementedError
 
     def get_dataloaders(
         self,
-        dataset: data.TensorDataset,
+        starting_round: int = 0,
         training_batch_size: int = 50,
         validation_fraction: float = 0.1,
         resume_training: bool = False,
@@ -296,21 +285,26 @@ class NeuralInference(ABC):
             resume_training: Whether the current call is resuming training so that no
                 new training and validation indices into the dataset have to be created.
             dataloader_kwargs: Additional or updated kwargs to be passed to the training
-                and validation dataloaders (like, e.g., a collate_fn)
+                and validation dataloaders (like, e.g., a collate_fn).
 
         Returns:
             Tuple of dataloaders for training and validation.
 
         """
 
-        # Get total number of training examples.
-        num_examples = len(dataset)
+        #
+        theta, x, prior_masks = self.get_simulations(starting_round)
 
+        dataset = data.TensorDataset(theta, x, prior_masks)
+
+        # Get total number of training examples.
+        num_examples = theta.size(0)
         # Select random train and validation splits from (theta, x) pairs.
         num_training_examples = int((1 - validation_fraction) * num_examples)
         num_validation_examples = num_examples - num_training_examples
 
         if not resume_training:
+            # Seperate indicies for training and validation
             permuted_indices = torch.randperm(num_examples)
             self.train_indices, self.val_indices = (
                 permuted_indices[:num_training_examples],
@@ -324,24 +318,18 @@ class NeuralInference(ABC):
         train_loader_kwargs = {
             "batch_size": min(training_batch_size, num_training_examples),
             "drop_last": True,
-            "sampler": data.sampler.SubsetRandomSampler(self.train_indices),
+            "sampler": SubsetRandomSampler(self.train_indices.tolist()),
         }
-        train_loader_kwargs = (
-            dict(train_loader_kwargs, **dataloader_kwargs)
-            if dataloader_kwargs is not None
-            else train_loader_kwargs
-        )
         val_loader_kwargs = {
             "batch_size": min(training_batch_size, num_validation_examples),
             "shuffle": False,
             "drop_last": True,
-            "sampler": data.sampler.SubsetRandomSampler(self.val_indices),
+            "sampler": SubsetRandomSampler(self.val_indices.tolist()),
         }
-        val_loader_kwargs = (
-            dict(val_loader_kwargs, **dataloader_kwargs)
-            if dataloader_kwargs is not None
-            else val_loader_kwargs
-        )
+        if dataloader_kwargs is not None:
+            train_loader_kwargs = dict(train_loader_kwargs, **dataloader_kwargs)
+            val_loader_kwargs = dict(val_loader_kwargs, **dataloader_kwargs)
+
         train_loader = data.DataLoader(dataset, **train_loader_kwargs)
         val_loader = data.DataLoader(dataset, **val_loader_kwargs)
 
@@ -361,6 +349,7 @@ class NeuralInference(ABC):
         """
         converged = False
 
+        assert self._neural_net is not None
         neural_net = self._neural_net
 
         # (Re)-start the epoch count with the first epoch or any improvement.
@@ -388,48 +377,38 @@ class NeuralInference(ABC):
         return SummaryWriter(logdir)
 
     @staticmethod
-    def _ensure_list(
-        num_simulations_per_round: Union[List[int], int], num_rounds: int
-    ) -> List[int]:
-        """Return `num_simulations_per_round` as a list of length `num_rounds`."""
-        try:
-            assert len(num_simulations_per_round) == num_rounds, (
-                "Please provide a list with number of simulations per round for each "
-                "round, or a single integer to be used for all rounds."
-            )
-        except TypeError:
-            num_simulations_per_round: List = [num_simulations_per_round] * num_rounds
-
-        return cast(list, num_simulations_per_round)
-
-    @staticmethod
     def _describe_round(round_: int, summary: Dict[str, list]) -> str:
-        epochs = summary["epochs"][-1]
-        best_validation_log_probs = summary["best_validation_log_probs"][-1]
+        epochs = summary["epochs_trained"][-1]
+        best_validation_log_prob = summary["best_validation_log_prob"][-1]
 
         description = f"""
         -------------------------
         ||||| ROUND {round_ + 1} STATS |||||:
         -------------------------
         Epochs trained: {epochs}
-        Best validation performance: {best_validation_log_probs:.4f}
+        Best validation performance: {best_validation_log_prob:.4f}
         -------------------------
         """
 
         return description
 
     @staticmethod
-    def _maybe_show_progress(show=bool, epoch=int) -> None:
+    def _maybe_show_progress(show: bool, epoch: int) -> None:
         if show:
             # end="\r" deletes the print statement when a new one appears.
-            # https://stackoverflow.com/questions/3419984/
-            print("Training neural network. Epochs trained: ", epoch, end="\r")
+            # https://stackoverflow.com/questions/3419984/. `\r` in the beginning due
+            # to #330.
+            print("\r", f"Training neural network. Epochs trained: {epoch}", end="")
 
     def _report_convergence_at_end(
         self, epoch: int, stop_after_epochs: int, max_num_epochs: int
     ) -> None:
         if self._converged(epoch, stop_after_epochs):
-            print(f"Neural network successfully converged after {epoch} epochs.")
+            print(
+                "\r",
+                f"Neural network successfully converged after {epoch} epochs.",
+                end="",
+            )
         elif max_num_epochs == epoch:
             warn(
                 "Maximum number of epochs `max_num_epochs={max_num_epochs}` reached,"
@@ -437,66 +416,69 @@ class NeuralInference(ABC):
             )
 
     def _summarize(
-        self, round_: int, x_o: Union[Tensor, None], theta_bank: Tensor, x_bank: Tensor
+        self,
+        round_: int,
     ) -> None:
         """Update the summary_writer with statistics for a given round.
 
-        Statistics are extracted from the arguments and from entries in self._summary
-        created during training.
+        During training several performance statistics are added to the summary, e.g.,
+        using `self._summary['key'].append(value)`. This function writes these values
+        into summary writer object.
+
+        Args:
+            round: index of round
+
+        Scalar tags:
+            - epochs_trained:
+                number of epochs trained
+            - best_validation_log_prob:
+                best validation log prob (for each round).
+            - validation_log_probs:
+                validation log probs for every epoch (for each round).
+            - training_log_probs
+                training log probs for every epoch (for each round).
+            - epoch_durations_sec
+                epoch duration for every epoch (for each round)
+
         """
-
-        # NB. This is a subset of the logging as done in `GH:conormdurkan/lfi`. A big
-        # part of the logging was removed because of API changes, e.g., logging
-        # comparisons to ground-truth parameters and samples.
-
-        # Median |x - x0| for most recent round.
-        if x_o is not None:
-            median_observation_distance = torch.median(
-                torch.sqrt(torch.sum((x_bank - x_o.reshape(1, -1)) ** 2, dim=-1))
-            )
-            self._summary["median_observation_distances"].append(
-                median_observation_distance.item()
-            )
-
-            self._summary_writer.add_scalar(
-                tag="median_observation_distance",
-                scalar_value=self._summary["median_observation_distances"][-1],
-                global_step=round_ + 1,
-            )
 
         # Add most recent training stats to summary writer.
         self._summary_writer.add_scalar(
             tag="epochs_trained",
-            scalar_value=self._summary["epochs"][-1],
+            scalar_value=self._summary["epochs_trained"][-1],
             global_step=round_ + 1,
         )
 
         self._summary_writer.add_scalar(
             tag="best_validation_log_prob",
-            scalar_value=self._summary["best_validation_log_probs"][-1],
+            scalar_value=self._summary["best_validation_log_prob"][-1],
             global_step=round_ + 1,
         )
 
         # Add validation log prob for every epoch.
         # Offset with all previous epochs.
-        offset = torch.tensor(self._summary["epochs"][:-1], dtype=int).sum().item()
+        offset = (
+            torch.tensor(self._summary["epochs_trained"][:-1], dtype=torch.int)
+            .sum()
+            .item()
+        )
         for i, vlp in enumerate(self._summary["validation_log_probs"][offset:]):
             self._summary_writer.add_scalar(
-                tag="validation_log_probs_across_rounds",
+                tag="validation_log_probs",
                 scalar_value=vlp,
                 global_step=offset + i,
             )
 
-        for i, tlp in enumerate(self._summary["train_log_probs"][offset:]):
+        for i, tlp in enumerate(self._summary["training_log_probs"][offset:]):
             self._summary_writer.add_scalar(
-                tag="train_log_probs_across_rounds",
+                tag="training_log_probs",
                 scalar_value=tlp,
                 global_step=offset + i,
             )
 
         for i, eds in enumerate(self._summary["epoch_durations_sec"][offset:]):
             self._summary_writer.add_scalar(
-                tag="epoch_durations_sec_across_rounds",
+                tag="epoch_durations_sec",
                 scalar_value=eds,
                 global_step=offset + i,
             )
@@ -507,6 +489,42 @@ class NeuralInference(ABC):
     def summary(self):
         return self._summary
 
+    def __getstate__(self) -> Dict:
+        """Returns the state of the object that is supposed to be pickled.
+
+        Attributes that can not be serialized are set to `None`.
+
+        Returns:
+            Dictionary containing the state.
+        """
+        warn(
+            "When the inference object is pickled, the behaviour of the loaded object "
+            "changes in the following two ways: "
+            "1) `.train(..., retrain_from_scratch=True)` is not supported. "
+            "2) When the loaded object calls the `.train()` method, it generates a new "
+            "tensorboard summary writer (instead of appending to the current one)."
+        )
+        dict_to_save = {}
+        unpicklable_attributes = ["_summary_writer", "_build_neural_net"]
+        for key in self.__dict__.keys():
+            if key in unpicklable_attributes:
+                dict_to_save[key] = None
+            else:
+                dict_to_save[key] = self.__dict__[key]
+        return dict_to_save
+
+    def __setstate__(self, state_dict: Dict):
+        """Sets the state when being loaded from pickle.
+
+        Also creates a new summary writer (because the previous one was set to `None`
+        during serializing, see `__get_state__()`).
+
+        Args:
+            state_dict: State to be restored.
+        """
+        state_dict["_summary_writer"] = self._default_summary_writer()
+        self.__dict__ = state_dict
+
 
 def simulate_for_sbi(
     simulator: Callable,
@@ -514,10 +532,10 @@ def simulate_for_sbi(
     num_simulations: int,
     num_workers: int = 1,
     simulation_batch_size: int = 1,
+    seed: Optional[int] = None,
     show_progress_bar: bool = True,
 ) -> Tuple[Tensor, Tensor]:
-    r"""
-    Returns ($\theta, x$) pairs obtained from sampling the proposal and simulating.
+    r"""Returns ($\theta, x$) pairs obtained from sampling the proposal and simulating.
 
     This function performs two steps:
 
@@ -537,6 +555,7 @@ def simulate_for_sbi(
             maps to data x at once. If None, we simulate all parameter sets at the
             same time. If >= 1, the simulator has to process data of shape
             (simulation_batch_size, parameter_dimension).
+        seed: Seed for reproducibility.
         show_progress_bar: Whether to show a progress bar for simulating. This will not
             affect whether there will be a progressbar while drawing samples from the
             proposal.
@@ -544,20 +563,22 @@ def simulate_for_sbi(
     Returns: Sampled parameters $\theta$ and simulation-outputs $x$.
     """
 
-    check_if_proposal_has_default_x(proposal)
-
     theta = proposal.sample((num_simulations,))
 
     x = simulate_in_batches(
-        simulator, theta, simulation_batch_size, num_workers, show_progress_bar
+        simulator=simulator,
+        theta=theta,
+        sim_batch_size=simulation_batch_size,
+        num_workers=num_workers,
+        seed=seed,
+        show_progress_bars=show_progress_bar,
     )
 
     return theta, x
 
 
 def check_if_proposal_has_default_x(proposal: Any):
-    """
-    Check for validity of the provided proposal distribution.
+    """Check for validity of the provided proposal distribution.
 
     If the proposal is a `NeuralPosterior`, we check if the default_x is set and
     if it matches the `_x_o_training_focused_on`.

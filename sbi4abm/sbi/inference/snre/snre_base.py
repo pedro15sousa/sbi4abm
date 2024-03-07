@@ -130,6 +130,7 @@ class RatioEstimator(NeuralInference, ABC):
         retrain_from_scratch_each_round: bool = False,
         show_train_summary: bool = False,
         dataloader_kwargs: Optional[Dict] = None,
+        loss_kwargs: Dict[str, Any] = {},
         z_score_x: bool = True
     ) -> RatioBasedPosterior:
         r"""
@@ -215,7 +216,7 @@ class RatioEstimator(NeuralInference, ABC):
                     batch[0].to(self._device),
                     batch[1].to(self._device),
                 )
-                loss = self._loss(theta_batch, x_batch, num_atoms)
+                loss = self._loss(theta_batch, x_batch, num_atoms, **loss_kwargs)
                 loss.backward()
                 if clip_max_norm is not None:
                     clip_grad_norm_(
@@ -235,7 +236,7 @@ class RatioEstimator(NeuralInference, ABC):
                         batch[0].to(self._device),
                         batch[1].to(self._device),
                     )
-                    loss = self._loss(theta_batch, x_batch, num_atoms)
+                    loss = self._loss(theta_batch, x_batch, num_atoms, **loss_kwargs)
                     loss_sum -= loss.sum().item()
                 # Take mean over all validation samples.
                 self._val_log_prob = loss_sum / (
