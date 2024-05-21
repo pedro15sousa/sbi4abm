@@ -50,5 +50,15 @@ class Model:
 		#np.fill_diagonal(w[0], 0.)
 		w, s = _simulate(rho, eps, lmbda, s, w, seed)
 		y = torch.from_numpy(np.concatenate((w, s), axis=-1)).float()
+
+		# print("Y shape: ", y.shape)
+		# print("# Agents: ", self._N)
+		# print("# Topics: ", self._K)
+		# print("# Time stamps: ", T)
+  
+		final_s = s[-1]
+		final_w = w[-1]
+
+		# return final_s
 		return y
 

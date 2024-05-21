@@ -46,6 +46,7 @@ def bh(g, b, R=1.01, beta=120., sigma=0.04, T=100, seed=None):
 	
 	# This will be an array with the deviations from fundamental price
 	x = np.zeros(T)	
+	n_h_history = np.zeros((T, len(g)))  # Assuming g contains a value per strategy category
  
 	# Simulate
 	for i in range(T - 3):
@@ -54,10 +55,11 @@ def bh(g, b, R=1.01, beta=120., sigma=0.04, T=100, seed=None):
 		U_h = _get_utility(g, b, x, R, i)
 		# Proportion of number of agents following each strategy
 		n_h = _get_numbers(U_h, beta)
+		n_h_history[i + 3] = n_h  # Track proportions
 		# Get price deviations
 		x[i + 3] = np.random.normal() * sigma / R + _get_mean(n_h, g, b, x, R, i)
 	
-	return x
+	return x, n_h_history
 
 
 class Model:
@@ -95,5 +97,7 @@ class Model:
 		g = np.array([self.g1, g2, g3, self.g4])
 		b = np.array([self.b1, b2, b3, self.b4])
 
-		x = bh(g, b, self.R, self.beta, sigma=self.sigma, T=T, seed=seed)
-		return np.expand_dims(x[3:], axis=-1)
+		x, n_h_history = bh(g, b, self.R, self.beta, sigma=self.sigma, T=T, seed=seed)
+		# n_h_history has shape (T, 4), indicating that there are 4 different strategies
+		# return np.expand_dims(x[3:], axis=-1)
+		return n_h_history[3:]

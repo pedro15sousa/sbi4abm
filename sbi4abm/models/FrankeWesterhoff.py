@@ -19,6 +19,8 @@ def _wp(mu, beta, phi, chi, alpha0, alphaw, eta, p_star, esf, esc, wf, wc, a, p,
 	nf = 0.5
 	# Note that log price is taken to be zero for first two steps
 	
+	nf_hist = []
+	nf_hist.append(nf)
 	# Simulate
 	for t in range(2, p.shape[0]-1):
 		
@@ -33,6 +35,7 @@ def _wp(mu, beta, phi, chi, alpha0, alphaw, eta, p_star, esf, esc, wf, wc, a, p,
 		
 		# New proportion of agents following strategy f
 		nf = 1 / (1 + np.exp(-beta * a[t - 1]))
+		nf_hist.append(nf)
 		
 		# Demand updates
 		dc[t] = chi * (p[t] - p[t - 1]) + esc[t] 
@@ -42,7 +45,8 @@ def _wp(mu, beta, phi, chi, alpha0, alphaw, eta, p_star, esf, esc, wf, wc, a, p,
 		p[t + 1] = p[t] + mu * (nf * df[t] + (1 - nf) * dc[t])	
 	
 	# We're calibrating against the time-series of log-returns
-	return np.diff(p[1:])[1:]
+	# return np.diff(p[1:])[1:]
+	return p[-1], wf[-1], wc[-1], nf_hist[-1], df[-1], dc[-1]
 
 @njit
 def _hpm_mean(mu, nf, phi, chi, pt1, pt2):
@@ -120,6 +124,12 @@ class Model:
 						  alphap, self.sigmaf, sigmac, T, seed)
 		elif self.flavour == "wp":
 			alphaw, eta, sigmac = [float(pars[i])*self.scale[i] for i in range(3)]
+			# print(alphaw)
+			# print(eta)
+			# print(sigmac)
+			# print("------")
+			# print(self.scale)
+			# print(pars)
 			esf, esc = self.sigmaf * np.random.normal(size=T), sigmac * np.random.normal(size=T)
 			wf = np.zeros(T)
 			wc = np.zeros(T)
