@@ -3,9 +3,13 @@ from argparse import RawTextHelpFormatter
 import numpy as np
 import os
 import pickle
-from sbi4abm.inference import kde, neural
+from sbi4abm.inference import kde, neural, bayesian_opt
 from sbi4abm.utils import io
 from sbi4abm.validation import sbc
+from sbi4abm.utils.stats import virus_summariser, flock_summariser, \
+								fire_summariser, hopfield_summariser, \
+								brockhommes_summariser, segregation_summariser, \
+								frankewesterhoff_summariser, socialcare_summariser
 import torch
 import warnings
 
@@ -96,30 +100,22 @@ class Summariser1D:
 		return self.summarise(x)
 
 	def summarise(self, x):
-		if x.ndim == 2:
-			print("True data (final state).")
-			final_state = x
-		else:
-			final_state = x[-1]
-			
-		center = np.mean(final_state, axis=0)
-		final_cohesion = np.mean([np.linalg.norm(agent - center) for agent in final_state])
-
-		distances = [np.linalg.norm(agent - other) for agent in final_state for other in final_state if not np.array_equal(agent, other)]
-		final_separation_std = np.std(distances)
-		final_separation_avg = np.mean(distances)
-
-		cohesion_separation_ratio = final_cohesion / final_separation_std
-
-		flock_density = 1 / final_separation_std if final_separation_std != 0 else float('inf')
-
-		sx = np.array([
-			cohesion_separation_ratio,
-			flock_density
-		])
-
-		return sx
-	
+		if args.task == "flocking":
+			return flock_summariser(x)
+		elif args.task == "virus":
+			return virus_summariser(x)
+		elif args.task == "fire":
+			return fire_summariser(x)
+		elif args.task == "hop":
+			return hopfield_summariser(x)
+		elif args.task == "bh_smooth" or args.task == "bh_noisy":
+			return brockhommes_summariser(x)
+		elif args.task == "segregation":
+			return segregation_summariser(x)
+		elif args.task == "fw_hpm" or args.task == "fw_wp":
+			return frankewesterhoff_summariser(x)
+		elif args.task == "socialcare":
+			return socialcare_summariser(x)
 
 
 #def _summary_wrap_simulator(simulator):
@@ -156,6 +152,7 @@ def _neural_prepare_estimator_observation(args, y, simulator):
 	network = "gru"
 	# See which summary network to use
 	de_name = args.method.split("_")
+	print("Method Name: ", de_name)
 	N = -1
 	if len(de_name) == 2:
 		de_name, network = de_name
@@ -168,11 +165,15 @@ def _neural_prepare_estimator_observation(args, y, simulator):
 		small = _ == "small"
 	else:
 		de_name = de_name[0]
+		naive = True
 	# Hand-crafted
 	if naive:
 		sim_pp = lambda x: x
 		embedding_kwargs = None
 		simulator = Summariser1D(simulator)
+		print("Beginning!!!")
+		print(y)
+		print(y.shape)
 		y = simulator.summarise(y)
 	# Learned
 	else:
@@ -308,6 +309,8 @@ if __name__ == "__main__":
 						help="Location to load an pretrained posterior from")
 	parser.add_argument('--nw', type=int, nargs="?", default=15,
 						help="Number of workers to use in simulating for sbi")
+	parser.add_argument('--max_iter', type=int, nargs="?", default=10,
+					 help="Max iterations for the Bayesian Optimisation loop.")
 	args = parser.parse_args()
 
 	# Prepare the outloc
@@ -351,6 +354,23 @@ if __name__ == "__main__":
 										 scale=args.scale,
 										 R=args.R,
 										 n_jobs=60)
+	#########################
+	# Bayesian Optimisation #
+	#########################
+	elif args.method == "bo":
+		# Determine whether to use hand-crafted or learned summary statistics
+		density_estimator, sbi_method, y, simulator, sim_pp, z_score_x = _neural_prepare_estimator_observation(args, y, simulator)
+
+		# if args.task == "hop": 
+		# 	y = [0.1, 0.5, 0.5, 0.9, 0.9]
+
+		print("Y: ", y)
+		BO = bayesian_opt.BayesianOpt(simulator, y)
+		BO.set_parameter_space(prior)
+		X, Y = BO.collect_random_points()
+		results = BO.run_bo_loop(X, Y, args.max_iter)
+		io.save_output(None, None, None, results.minimum_location, outloc)
+		exit()
 
 	##################
 	# NEURAL METHODS #
@@ -394,7 +414,7 @@ if __name__ == "__main__":
 													  num_workers=args.nw,
 													  z_score_x=z_score_x,
 													  outloc=outloc)
-			io.save_output(posteriors, samples, ranks, outloc)
+			io.save_output(posteriors, samples, ranks, None, outloc)
 		else:
 			with open(args.load_post, "rb") as fh:
 				posteriors = pickle.load(fh)
@@ -419,4 +439,4 @@ if __name__ == "__main__":
 										   scale=args.scale,
 										   n_jobs=2)
 	
-	io.save_output(posteriors, samples, ranks, outloc)
+	io.save_output(posteriors, samples, ranks, None, outloc)

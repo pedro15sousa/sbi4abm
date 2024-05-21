@@ -116,6 +116,7 @@ def build_mlp_classifier(
     z_score_x: bool = True,
     z_score_y: bool = True,
     hidden_features: int = 50,
+    # hidden_features: int = 100,
     embedding_net_x: nn.Module = nn.Identity(),
     embedding_net_y: nn.Module = nn.Identity(),
 ) -> nn.Module:
@@ -165,6 +166,7 @@ def build_resnet_classifier(
     z_score_x: bool = True,
     z_score_y: bool = True,
     hidden_features: int = 50,
+    num_blocks: int = 2,
     embedding_net_x: nn.Module = nn.Identity(),
     embedding_net_y: nn.Module = nn.Identity(),
 ) -> nn.Module:
@@ -188,13 +190,12 @@ def build_resnet_classifier(
     # Infer the output dimensionalities of the embedding_net by making a forward pass.
     x_numel = embedding_net_x(batch_x[:1]).numel()
     y_numel = embedding_net_y(batch_y[:1]).numel()
-
     neural_net = nets.ResidualNet(
         in_features=x_numel + y_numel,
         out_features=1,
         hidden_features=hidden_features,
+        num_blocks=num_blocks,
         context_features=None,
-        num_blocks=2,
         activation=relu,
         dropout_probability=0.0,
         use_batch_norm=False,

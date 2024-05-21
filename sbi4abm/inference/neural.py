@@ -42,17 +42,22 @@ def create_density_estimator(embedding_kwargs, density_estimator):
 	print("Embedding net has {0} trainable parameters".format(num_pars))
 	# If it's a conditional density estimator, assume it's for posterior estimation.
 	# Then just use default settings (since these are from benchmarking paper)
+	print("Density estimator: ", density_estimator)
 	if density_estimator in ["maf", "nsf", "made", "mdn"]:
 		z_score_x = False
 		density_estimator = utils.posterior_nn(model=density_estimator,
 											   embedding_net=embedding_net,
-											   z_score_x=z_score_x)
+											   z_score_x=z_score_x,
+											   hidden_features=50,
+											   num_transforms=10)
 	# Else it's a ratio estimator (classifier), so just use default settings again
-	elif density_estimator in ["linear", "mlp", "resnet"]:
+	elif density_estimator in ["linear", "mlp", "resnet", "bo"]:
 		z_score_x = False
 		density_estimator = utils.get_nn_models.classifier_nn(density_estimator,
 															  embedding_net_x=embedding_net,
-															  z_score_x=z_score_x)
+															  z_score_x=z_score_x,
+															  hidden_features=50,
+															  num_blocks=6)
 	return density_estimator, z_score_x
 
 
@@ -70,7 +75,6 @@ def sbi_training(simulator,
 				 num_workers=15,
 				 z_score_x=True,
 				 outloc=None):
-
 	sbi_simulator, sbi_prior = prepare_for_sbi(simulator, prior)
 	posteriors = []
 	proposal = sbi_prior
@@ -78,6 +82,8 @@ def sbi_training(simulator,
 		inference = SNPE(prior=sbi_prior, density_estimator=density_estimator)
 	elif method == "SNRE":
 		inference = SNRE(prior=sbi_prior, classifier=density_estimator)
+	
+	print("Inference: ", inference)
 
 	for sim_count in n_sims:
 		theta, x = simulate_for_sbi(sbi_simulator, proposal, num_simulations=sim_count,
@@ -100,7 +106,7 @@ def sbi_training(simulator,
 		proposal = posterior.set_default_x(y)
 
 	if not outloc is None:
-		io.save_output(posteriors, None, None, outloc)
+		io.save_output(posteriors, None, None, None, outloc)
 
 	if n_samples > 0:
 		if sampler is None:

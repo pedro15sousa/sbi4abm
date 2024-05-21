@@ -438,6 +438,7 @@ def ensure_batched_simulator(simulator: Callable, prior) -> Callable:
 
     is_batched_simulator = True
     try:
+        print("Checking if simulator natively supports batch simulations.")
         batch_size = 2
         # The simulator must return a matching batch dimension and data.
         output_shape = simulator(prior.sample((batch_size,))).shape
@@ -455,12 +456,12 @@ def get_batch_loop_simulator(simulator: Callable) -> Callable:
     Note: this batches the simulator only syntactically, there are no performance
     benefits as with true vectorization."""
 
+    print("Wrapping simulator to handle batch simulations.")
     def batch_loop_simulator(theta: Tensor) -> Tensor:
         """Return a batch of simulations by looping over a batch of parameters."""
         assert theta.ndim > 1, "Theta must have a batch dimension."
         xs = list(map(simulator, theta))
         return torch.cat(xs, dim=0).reshape(theta.shape[0], -1)
-
     return batch_loop_simulator
 
 
@@ -511,7 +512,6 @@ def process_x(
     Returns:
         x: Observed data with shape ready for usage in sbi.
     """
-
     x = atleast_2d(torch.as_tensor(x, dtype=float32))
 
     # If x_shape is provided, we can fix a missing batch dim for >1D data.

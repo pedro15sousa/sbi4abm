@@ -6,7 +6,10 @@ from sbi4abm.sbi import utils
 import time
 import torch
 
-from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, MVGBM, Flocking
+from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, \
+							MVGBM, Flocking, VirusSpread, ForestFire, \
+							Segregation
+# from sbi4abm.models.SocialCare import SocialCare
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -19,8 +22,8 @@ class Simulator:
 
 	def __call__(self, pars):
 		x = self.model.simulate(pars=pars, T=self.T)
-		if len(x.shape) == 1:
-			x = np.expand_dims(x, axis=-1)
+		# if len(x.shape) == 1:
+		# 	x = np.expand_dims(x, axis=-1)
 		return x
 
 def _name2T(name):
@@ -37,6 +40,14 @@ def _name2T(name):
 		T = 25#50
 	elif name == "flocking":
 		T = 200
+	elif name == "virus":
+		T = 100
+	elif name == "fire":
+		T = 200
+	elif name == "segregation":
+		T = 100
+	elif name == "socialcare":
+		T = 100
 	return T
 
 def _load_simulator(task_name):
@@ -56,6 +67,14 @@ def _load_simulator(task_name):
 		model = MVGBM.Model()
 	elif task_name == "flocking":
 		model = Flocking.Model()
+	elif task_name == "virus":
+		model = VirusSpread.Model()
+	elif task_name == "fire":
+		model = ForestFire.Model()
+	elif task_name == "segregation":
+		model = Segregation.Model()
+	elif task_name == "socialcare":
+		model = SocialCare.Model()
 
 	simulator = Simulator(model, _name2T(task_name))
 
@@ -84,6 +103,24 @@ def _load_prior(task_name):
 	elif task_name == "flocking":
 		prior = utils.BoxUniform(low=torch.tensor([0.,0.,0.,0.]),
 								 high=torch.tensor([1., 1., 1.,1.]))
+	elif task_name == "virus":
+		prior = utils.BoxUniform(low=torch.tensor([0.,0.]),
+								 high=torch.tensor([1., 1.]))
+	elif task_name == "fire":
+		prior = utils.BoxUniform(low=torch.tensor([0.1,50.]),
+								 high=torch.tensor([1., 100.]))
+	# elif task_name == "fire":
+	# 	prior = utils.BoxUniform(low=torch.tensor([0.1]),
+	# 							 high=torch.tensor([1.]))
+	elif task_name == "segregation":
+		prior = utils.BoxUniform(low=torch.tensor([0.,0.1]),
+								 high=torch.tensor([1., 1.]))
+	# elif task_name == "socialcare":
+	# 	prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 40, 55, 0.0002, 10, 10, 1, 5, 5]),
+	# 							 high=torch.tensor([0.8, 0.0016, 80, 75, 0.0016, 25, 25, 10, 50, 40]))
+	elif task_name == "socialcare":
+		prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
+								 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
 	return prior
 	
 def _load_dataset(task_name):
@@ -102,6 +139,14 @@ def _load_dataset(task_name):
 		y = np.loadtxt(os.path.join(this_dir, "../data/MVGBM/obs.txt"))[1:]
 	elif task_name == "flocking":
 		y = np.loadtxt(os.path.join(this_dir, "../data/Flocking/obs.txt"))
+	elif task_name == "virus":
+		y = np.loadtxt(os.path.join(this_dir, "../data/VirusSpread/obs.txt"))
+	elif task_name == "fire":
+		y = np.loadtxt(os.path.join(this_dir, "../data/ForestFire/obs.txt"))
+	elif task_name == "segregation":
+		y = np.loadtxt(os.path.join(this_dir, "../data/Segregation/obs.txt"))
+	elif task_name == "socialcare":
+		y = np.loadtxt(os.path.join(this_dir, "../data/SocialCare/obs.txt"))
 	return y
 
 def _load_true_pars(task_name):
@@ -120,6 +165,17 @@ def _load_true_pars(task_name):
 		theta = np.array([0.2,-0.5,0.])
 	elif task_name == "flocking":
 		theta = np.array([0.25, 0.15, 0.45, 0.5])
+	elif task_name == "virus":
+		theta = np.array([0.6, 0.07])
+	elif task_name == "fire":
+		theta = np.array([0.4, 70.])
+		# theta = np.array([0.4])
+	elif task_name == "segregation":
+		theta = np.array([0.5, 0.7])
+	# elif task_name == "socialcare":
+	# 	theta = np.array([0.1, 0.0002, 60.0, 65, 0.0008, 18.0, 19.0, 5.0, 30.0, 25.0])
+	elif task_name == "socialcare":
+		theta = np.array([0.1, 0.0002, 0.0008, 18.0, 19.0])
 	return theta
 
 def load_task(task_name):
@@ -153,7 +209,7 @@ def prep_outloc(args):
 
 	return outloc
 
-def save_output(posteriors, samples, ranks, outloc):
+def save_output(posteriors, samples, ranks, bo_results, outloc):
 
 	if not posteriors is None:
 		loc = os.path.join(outloc, "posteriors.pkl")
@@ -165,3 +221,6 @@ def save_output(posteriors, samples, ranks, outloc):
 	if not ranks is None:
 		ranks_loc = os.path.join(outloc, "ranks.txt")
 		np.savetxt(ranks_loc, ranks)
+	if not bo_results is None:
+		bo_loc = os.path.join(outloc, "bo_results.txt")
+		np.savetxt(bo_loc, bo_results)

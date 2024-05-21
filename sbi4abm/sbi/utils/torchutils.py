@@ -255,6 +255,14 @@ class BoxUniform(Independent):
             reinterpreted_batch_ndims,
         )
 
+    @property
+    def low(self):
+        return self.base_dist.low
+
+    @property
+    def high(self):
+        return self.base_dist.high
+
 
 def ensure_theta_batched(theta: Tensor) -> Tensor:
     r"""

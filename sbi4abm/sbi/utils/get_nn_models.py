@@ -20,6 +20,7 @@ def classifier_nn(
     z_score_theta: bool = True,
     z_score_x: bool = True,
     hidden_features: int = 50,
+    num_blocks: int = 2,
     embedding_net_theta: nn.Module = nn.Identity(),
     embedding_net_x: nn.Module = nn.Identity(),
 ) -> Callable:
@@ -51,6 +52,7 @@ def classifier_nn(
                 "z_score_x",
                 "z_score_y",
                 "hidden_features",
+                "num_blocks",
                 "embedding_net_x",
                 "embedding_net_y",
             ),
@@ -58,6 +60,7 @@ def classifier_nn(
                 z_score_theta,
                 z_score_x,
                 hidden_features,
+                num_blocks,
                 embedding_net_theta,
                 embedding_net_x,
             ),

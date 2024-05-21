@@ -107,6 +107,9 @@ def build_maf(
     if x_numel == 1:
         warn(f"In one-dimensional output space, this flow is limited to Gaussians")
 
+    print("# of transforms: ", num_transforms)
+    print("# hidden features: ", hidden_features)
+
     transform = transforms.CompositeTransform(
         [
             transforms.CompositeTransform(
