@@ -9,7 +9,7 @@ import torch
 from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, \
 							MVGBM, Flocking, VirusSpread, ForestFire, \
 							Segregation
-# from sbi4abm.models.SocialCare import SocialCare
+from sbi4abm.models.SocialCare import SocialCare
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -171,7 +171,7 @@ def _load_true_pars(task_name):
 		theta = np.array([0.4, 70.])
 		# theta = np.array([0.4])
 	elif task_name == "segregation":
-		theta = np.array([0.5, 0.7])
+		theta = np.array([0.3, 0.8])
 	# elif task_name == "socialcare":
 	# 	theta = np.array([0.1, 0.0002, 60.0, 65, 0.0008, 18.0, 19.0, 5.0, 30.0, 25.0])
 	elif task_name == "socialcare":

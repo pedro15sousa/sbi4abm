@@ -105,13 +105,14 @@ def hopfield_summariser(x):
     glob_clust_coeff = np.trace((A.dot(A)).dot(A)) / np.sum(k*(k-1))
     overlaps = np.dot(s, s.T)[iu1]/2
     weights = w[iu1]
-    corr_weight_op = np.corrcoef(weights, overlaps)
+    corr_weight_op = np.corrcoef(weights, overlaps)[0,1]
 
-    sx = np.concatenate([
-        n_neg_triad.flatten(), 
-        glob_clust_coeff.flatten(), 
-        corr_weight_op.flatten()
+    sx = np.array([
+        n_neg_triad, 
+        corr_weight_op,
+        glob_clust_coeff
     ])
+    print(sx)
 
     return sx
 
@@ -255,6 +256,47 @@ def socialcare_summariser(x):
     sx = np.array([
         final_tax,
         final_per_capita_cost
+    ])
+    return sx
+
+
+def mvgbm_summariser(x):
+    print("X to compute stats: ", x)
+
+    if isinstance(x, torch.Tensor):
+        x = x.detach().cpu().numpy()
+
+    final_asset_prices = x[-1]
+
+    returns = np.diff(x, axis=0) / x[:-1]
+    volatility = returns.std(axis=0)
+    assets_correlation = np.corrcoef(returns, rowvar=False)
+
+    cum_returns = np.prod(1 + returns, axis=0) - 1
+    value_at_risk = np.percentile(cum_returns, 100 * 0.05, axis=0)
+
+    excess_returns = returns - 0.0 / 252
+    expected_shortfall = np.mean(cum_returns[cum_returns < value_at_risk], axis=0)
+
+    sharpe_ratio = np.mean(excess_returns, axis=0) / np.std(excess_returns, axis=0)
+
+    peak = np.maximum.accumulate(cum_returns, axis=0)
+    drawdown = (cum_returns - peak) / peak
+    max_drawdown = np.min(drawdown, axis=0)
+
+    print(cum_returns)
+    print(max_drawdown)
+    print(volatility)
+    print(value_at_risk)
+    print(expected_shortfall)
+
+    # print(sharpe_ratio)
+    sx = np.concatenate([
+        cum_returns.flatten(),
+        # volatility.flatten(),
+        np.array([value_at_risk]),
+        np.array([expected_shortfall]),
+        np.array([max_drawdown])
     ])
     return sx
 

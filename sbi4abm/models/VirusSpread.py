@@ -25,25 +25,21 @@ class VirusModel(ap.Model):
     def setup(self):
         """ Initialize the agents and network of the model. """
 
-        # Prepare a small-world network
         graph = nx.watts_strogatz_graph(
             self.p.population,
             self.p.number_of_neighbors,
             self.p.network_randomness)
 
-        # Create agents and network
         self.agents = ap.AgentList(self, self.p.population, Person)
         self.network = self.agents.network = ap.Network(self, graph)
         self.network.add_agents(self.agents, self.network.nodes)
 
-        # Infect a random share of the population
         I0 = int(self.p.initial_infection_share * self.p.population)
         self.agents.random(I0).condition = 1
 
     def update(self):
         """ Record variables after setup and each step. """
 
-        # Record share of agents with each condition
         for i, c in enumerate(('S', 'I', 'R')):
             n_agents = len(self.agents.select(self.agents.condition == i))
             self[c] = n_agents / self.p.population

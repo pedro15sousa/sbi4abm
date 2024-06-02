@@ -5,29 +5,20 @@ import numpy as np
 class ForestModel(ap.Model):
 
     def setup(self):
-
-        # Create agents (trees)
         n_trees = int(self.p['Tree density'] * (self.p.size**2))
         trees = self.agents = ap.AgentList(self, n_trees)
 
-        # Create grid (forest)
         self.forest = ap.Grid(self, [self.p.size]*2, track_empty=True)
         self.forest.add_agents(trees, random=True, empty=True)
 
-        # Initiate a dynamic variable for all trees
         # Condition 0: Alive, 1: Burning, 2: Burned
         self.agents.condition = 0
 
-        # Start a fire from the left side of the grid
         unfortunate_trees = self.forest.agents[0:self.p.size, 0:2]
         unfortunate_trees.condition = 1
 
     def step(self):
-
-        # Select burning trees
         burning_trees = self.agents.select(self.agents.condition == 1)
-
-        # Spread fire
         for tree in burning_trees:
             for neighbor in self.forest.neighbors(tree):
                 if neighbor.condition == 0:

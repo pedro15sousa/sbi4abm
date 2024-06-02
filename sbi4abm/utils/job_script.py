@@ -9,7 +9,8 @@ from sbi4abm.validation import sbc
 from sbi4abm.utils.stats import virus_summariser, flock_summariser, \
 								fire_summariser, hopfield_summariser, \
 								brockhommes_summariser, segregation_summariser, \
-								frankewesterhoff_summariser, socialcare_summariser
+								frankewesterhoff_summariser, socialcare_summariser, \
+								mvgbm_summariser
 import torch
 import warnings
 
@@ -116,6 +117,8 @@ class Summariser1D:
 			return frankewesterhoff_summariser(x)
 		elif args.task == "socialcare":
 			return socialcare_summariser(x)
+		elif args.task == "mvgbm":
+			return mvgbm_summariser(x)
 
 
 #def _summary_wrap_simulator(simulator):

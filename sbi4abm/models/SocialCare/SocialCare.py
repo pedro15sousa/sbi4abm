@@ -1414,14 +1414,14 @@ def init_params():
     
     return p
 
-p = init_params()
+# p = init_params()
 
-######################################################
-# A basic single run
+# ######################################################
+# # A basic single run
 
-s = Sim(p)
-tax, per_capita_cost, seed  = s.run()
-print(tax, per_capita_cost, seed)
+# s = Sim(p)
+# tax, per_capita_cost, seed  = s.run()
+# print(tax, per_capita_cost, seed)
 
 class Model:
 

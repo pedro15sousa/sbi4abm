@@ -263,6 +263,9 @@ class ActiveSubspace:
             permuted_indices[num_training_examples:],
         )
 
+        print(self._theta)
+        print(self._emergent_property)
+
         # Dataset is shared for training and validation loaders.
         dataset = data.TensorDataset(self._theta, self._emergent_property)
 
