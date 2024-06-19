@@ -320,4 +320,21 @@ def mvgbm_summariser(x):
 #     return sx
 
 
+def covid_summariser(x):
+    cumulative_deaths = x[0]
+    cumulative_crit = x[1]
+    cumulative_sari = x[2]
+    cumulative_ili = x[3]
+    cumulative_mild = x[4]
+
+    sx = np.array([
+        cumulative_deaths,
+        cumulative_crit,
+        cumulative_sari,
+        cumulative_ili,
+        cumulative_mild
+    ], dtype=np.float32)
+    print("Covid summarising stats: ", sx)
+    return sx
+
 

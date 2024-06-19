@@ -39,6 +39,7 @@ class CustomPytorchWrapper(Distribution):
         self._set_mean_and_variance()
 
     def log_prob(self, value) -> Tensor:
+        print("Value:", value)
         return torch.as_tensor(
             self.custom_prior.log_prob(value), dtype=self.return_type
         )
