@@ -8,7 +8,7 @@ import torch
 
 from sbi4abm.models import BrockHommes, FrankeWesterhoff, Hopfield, \
 							MVGBM, Flocking, VirusSpread, ForestFire, \
-							Segregation
+							Segregation, Covid
 from sbi4abm.models.SocialCare import SocialCare
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
@@ -48,6 +48,8 @@ def _name2T(name):
 		T = 100
 	elif name == "socialcare":
 		T = 100
+	elif name == "covid":
+		T = 100
 	return T
 
 def _load_simulator(task_name):
@@ -75,6 +77,8 @@ def _load_simulator(task_name):
 		model = Segregation.Model()
 	elif task_name == "socialcare":
 		model = SocialCare.Model()
+	elif task_name == "covid":
+		model = Covid.Model()
 
 	simulator = Simulator(model, _name2T(task_name))
 
@@ -118,9 +122,15 @@ def _load_prior(task_name):
 	# elif task_name == "socialcare":
 	# 	prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 40, 55, 0.0002, 10, 10, 1, 5, 5]),
 	# 							 high=torch.tensor([0.8, 0.0016, 80, 75, 0.0016, 25, 25, 10, 50, 40]))
+	# elif task_name == "socialcare":
+	# 	prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
+	# 							 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
 	elif task_name == "socialcare":
-		prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
+		prior = utils.CompositeUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
 								 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
+	elif task_name == "covid":
+		prior = utils.CompositeUniform(low=torch.tensor([0.0, 1]),
+								 	   high=torch.tensor([2.0, 10]))
 	return prior
 	
 def _load_dataset(task_name):
@@ -147,6 +157,8 @@ def _load_dataset(task_name):
 		y = np.loadtxt(os.path.join(this_dir, "../data/Segregation/obs.txt"))
 	elif task_name == "socialcare":
 		y = np.loadtxt(os.path.join(this_dir, "../data/SocialCare/obs.txt"))
+	elif task_name == "covid":
+		y = np.loadtxt(os.path.join(this_dir, "../data/Covid/obs.txt"))
 	return y
 
 def _load_true_pars(task_name):
@@ -176,6 +188,8 @@ def _load_true_pars(task_name):
 	# 	theta = np.array([0.1, 0.0002, 60.0, 65, 0.0008, 18.0, 19.0, 5.0, 30.0, 25.0])
 	elif task_name == "socialcare":
 		theta = np.array([0.1, 0.0002, 0.0008, 18.0, 19.0])
+	elif task_name == "covid":
+		theta = np.array([0.25, 1])
 	return theta
 
 def load_task(task_name):
