@@ -40,6 +40,8 @@ from sbi4abm.sbi.utils.sbiutils import (
 )
 from sbi4abm.sbi.utils.torchutils import (
     BoxUniform,
+    IntegerUniform,
+    CompositeUniform,
     assert_all_finite,
     cbrt,
     create_alternating_binary_mask,

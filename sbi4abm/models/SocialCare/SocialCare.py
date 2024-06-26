@@ -244,14 +244,14 @@ class Sim:
         self.nextDisplayHouse = None
 
         #reading JH's fertility projections from a CSV into a numpy array
-        self.fert_data = np.genfromtxt('../../sbi4abm/models/SocialCare/babyrate.txt.csv', skip_header=0, delimiter='\t')
-        # self.fert_data = np.genfromtxt('sbi4abm/models/SocialCare/babyrate.txt.csv', skip_header=0, delimiter='\t')
+        # self.fert_data = np.genfromtxt('../../sbi4abm/models/SocialCare/babyrate.txt.csv', skip_header=0, delimiter='\t')
+        self.fert_data = np.genfromtxt('sbi4abm/models/SocialCare/babyrate.txt.csv', skip_header=0, delimiter='\t')
 
         #reading JH's fertility projections from two CSVs into two numpy arrays
-        self.death_female = np.genfromtxt('../../sbi4abm/models/SocialCare/deathrate.fem.csv', skip_header=0, delimiter='\t')
-        # self.death_female = np.genfromtxt('sbi4abm/models/SocialCare/deathrate.fem.csv', skip_header=0, delimiter='\t')
-        self.death_male = np.genfromtxt('../../sbi4abm/models/SocialCare/deathrate.male.csv', skip_header=0, delimiter='\t')
-        # self.death_male = np.genfromtxt('sbi4abm/models/SocialCare/deathrate.male.csv', skip_header=0, delimiter='\t')
+        # self.death_female = np.genfromtxt('../../sbi4abm/models/SocialCare/deathrate.fem.csv', skip_header=0, delimiter='\t')
+        self.death_female = np.genfromtxt('sbi4abm/models/SocialCare/deathrate.fem.csv', skip_header=0, delimiter='\t')
+        # self.death_male = np.genfromtxt('../../sbi4abm/models/SocialCare/deathrate.male.csv', skip_header=0, delimiter='\t')
+        self.death_male = np.genfromtxt('sbi4abm/models/SocialCare/deathrate.male.csv', skip_header=0, delimiter='\t')
       
     def doOneYear(self):
         """Run one year of simulated time."""

@@ -182,6 +182,8 @@ def outcomes():
         if os.path.exists(severity_file_name):
             severity_results = pd.read_csv(severity_file_name, sep="\t")
             severity_results = severity_results.dropna(axis=1, how='all')
+
+            print(severity_results.columns)
             
             if 'cumDeath' in severity_results.columns:
                 total_cum_death = severity_results['cumDeath'].iloc[-1]
@@ -229,6 +231,11 @@ class Model:
         run_intervention_sim(self.exe, self.cf, self.pp_file, self.wpop_bin, self.network_bin, param_values)
         cumulative_deaths, cumulative_crit, cumulative_sari, cumulative_ili, cumulative_mild = outcomes()
         print("Param values: ", param_values)
+        # cumulative_deaths = 0
+        # cumulative_crit = 0
+        # cumulative_sari = 0
+        # cumulative_ili = 0
+        # cumulative_mild = 0
         return cumulative_deaths, cumulative_crit, cumulative_sari, cumulative_ili, cumulative_mild
 
 

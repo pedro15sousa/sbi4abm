@@ -122,15 +122,18 @@ def _load_prior(task_name):
 	# elif task_name == "socialcare":
 	# 	prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 40, 55, 0.0002, 10, 10, 1, 5, 5]),
 	# 							 high=torch.tensor([0.8, 0.0016, 80, 75, 0.0016, 25, 25, 10, 50, 40]))
-	# elif task_name == "socialcare":
-	# 	prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
-	# 							 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
 	elif task_name == "socialcare":
-		prior = utils.CompositeUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
+		prior = utils.BoxUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
 								 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
+	# elif task_name == "socialcare":
+	# 	prior = utils.CompositeUniform(low=torch.tensor([0.1, 0.0002, 0.0002, 10, 10]),
+	# 							 high=torch.tensor([0.8, 0.0016, 0.0016, 25, 25]))
+	# elif task_name == "covid":
+	# 	prior = utils.CompositeUniform(low=torch.tensor([0.0, 1]),
+	# 							 	   high=torch.tensor([1.0, 10]))
 	elif task_name == "covid":
-		prior = utils.CompositeUniform(low=torch.tensor([0.0, 1]),
-								 	   high=torch.tensor([2.0, 10]))
+		prior = utils.BoxUniform(low=torch.tensor([0.0, 1]),
+								 	   high=torch.tensor([1.0, 10]))
 	return prior
 	
 def _load_dataset(task_name):

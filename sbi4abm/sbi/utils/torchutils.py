@@ -290,6 +290,51 @@ class IntegerUniform(Independent):
     def mean(self):
         return (self.low + self.high) / 2    
 
+
+
+# class Composite(Distribution):
+#     arg_constraints = {}
+
+#     def __init__(self, low_uni, high_uni, low_cat, high_cat, validate_args=None):
+#         self.low_uni = low_uni
+#         self.high_uni = high_uni
+
+#         self.uniform = Uniform(
+#             low=torch.as_tensor(self.low_uni, dtype=torch.float32), 
+#             high=torch.as_tensor(self.high_uni, dtype=torch.float32), 
+#             validate_args=validate_args
+#         )
+
+#         self.low_cat = low_cat
+#         self.high_cat = high_cat
+
+#         values = torch.arange(self.low_cat, self.high_cat + 1)
+#         probs = torch.ones_like(values, dtype=torch.float) / len(values)
+#         self.categorical = Categorical(probs=probs, validate_args=validate_args)
+
+#         batch_shape = self.uniform.batch_shape
+#         event_shape = (2,)  # Two-dimensional event shape
+#         super().__init__(batch_shape, event_shape, validate_args=validate_args)
+
+#     def sample(self, sample_shape=torch.Size()):
+#         box_sample = self.uniform.sample(sample_shape)
+#         indices = self.categorical.sample(sample_shape)
+#         # int_sample = (self.low_cat + indices).to(torch.int).unsqueeze(-1)
+#         int_sample = (self.low_cat + indices).to(torch.int).unsqueeze(-1)
+#         return torch.cat([box_sample, int_sample], dim=-1)
+    
+#     def log_prob(self, value):
+#         box_value, int_value = value[..., :-1], value[..., -1].to(torch.int64) - self.low_cat
+#         box_log_prob = self.uniform.log_prob(box_value)
+#         int_log_prob = self.categorical.log_prob(int_value).unsqueeze(-1)
+#         return box_log_prob + int_log_prob
+
+#     @constraints.dependent_property(is_discrete=False, event_dim=1)
+#     def support(self):
+#         # return CompositeConstraint(self.uniform.support, [cat.support for cat in self.categoricals], self.low_uni, self.low_cat)
+#         return CompositeConstraint(self.uniform.support, self.categorical.support, self.low_uni, self.low_cat)
+    
+
 # class CompositeUniform(Independent):
 #     def __init__(
 #             self,
@@ -297,115 +342,138 @@ class IntegerUniform(Independent):
 #             high: ScalarFloat,
 #             reinterpreted_batch_ndims: int = 1,
 #             device: str = "cpu",
-#             validate_args=None
 #     ):
-#         base_dist = Distribution()
-        
-#         base_dist.uniform = Uniform(
-#             low=torch.as_tensor(low[0], dtype=torch.float32, device=device), 
-#             high=torch.as_tensor(high[0], dtype=torch.float32, device=device), 
-#             validate_args=validate_args
-#         )
-
+#         self.low_uni = low[0]
+#         self.high_uni = high[0]
 #         self.low_cat = low[1]
 #         self.high_cat = high[1]
-#         values = torch.arange(self.low_cat.item(), self.high_cat.item() + 1, device=device)
-#         probs = torch.ones_like(values, dtype=torch.float) / len(values)
-#         base_dist.categorical = Categorical(probs=probs, validate_args=validate_args)
+#         # self.low_uni = low[:-2]
+#         # self.high_uni = high[:-2]
+#         # self.low_cat = low[-2:]
+#         # self.high_cat = high[-2:]
+#         base_dist = Composite(self.low_uni, self.high_uni, self.low_cat, self.high_cat)
+#         super().__init__(
+#             base_dist, 
+#             reinterpreted_batch_ndims,
+#         )
 
-#         print(base_dist)
+#     def sample(self, sample_shape=torch.Size()):
+#         return self.base_dist.sample(sample_shape)
 
-#         reinterpreted_batch_ndims = 1  # Treat the last dimension as event dimension
-#         super().__init__(base_dist, reinterpreted_batch_ndims, validate_args=validate_args)
+#     def log_prob(self, value):
+#         return self.base_dist.log_prob(value)
+
+#     @property
+#     def mean(self):
+#         return self.base_dist.mean
+
+#     @constraints.dependent_property
+#     def support(self):
+#         return self.base_dist.support
+    
+    
+# class CompositeConstraint(constraints.Constraint):
+#     def __init__(self, uniform_support, categoricals_support, low_uni, low_cat):
+#         self.uniform_support = uniform_support
+#         self.int_support = categoricals_support
+#         self.low_uni = low_uni
+#         self.low_cat = low_cat
+
+#     @property
+#     def is_discrete(self):
+#         return self.box_support.is_discrete or self.categoricals_support.is_discrete
+
+#     @property
+#     def event_dim(self):
+#         return max(self.box_support.event_dim, self.categoricals_support.event_dim)
+
+#     def check(self, value):
+#         box_samples, int_samples = value[..., :-1], value[..., -1].to(torch.int64) - self.low_cat
+#         box_samples = torch.squeeze(box_samples, dim=-1)
+#         box_check = self.uniform_support.check(box_samples)
+#         # int_check = self.int_support.check(int_samples).unsqueeze(-1)
+#         int_check = self.int_support.check(int_samples)
+#         print("\n")
+#         print("box samples: ", box_samples)
+#         print("int samples: ", int_samples)
+#         print("box check: ", box_check)
+#         print("int check: ", int_check)
+#         print("\n")
+#         return box_check & int_check
+
+
+
+
+
+
+
+
+
 
 class Composite(Distribution):
     arg_constraints = {}
 
     def __init__(self, low_uni, high_uni, low_cat, high_cat, validate_args=None):
-        if low_uni.ndimension() == 0:
-            print("Only one parameter has a uniform distribution.")
-            low_uni = torch.tensor([low_uni])
-            high_uni = torch.tensor([high_uni])
-        else:
-            print("More than one parameter has a uniform distribution.")
+        # Handle uniform parameters
+        self.low_uni = torch.as_tensor(low_uni, dtype=torch.float32)
+        self.high_uni = torch.as_tensor(high_uni, dtype=torch.float32)
+        print(self.low_uni)
 
-        self.low_uni = low_uni
-        self.high_uni = high_uni
+        self.uniform = Uniform(low=self.low_uni, high=self.high_uni, validate_args=validate_args)
 
-        self.uniform = Uniform(
-            low=torch.as_tensor(self.low_uni, dtype=torch.float32), 
-            high=torch.as_tensor(self.high_uni, dtype=torch.float32), 
-            validate_args=validate_args
-        )
+        # Handle categorical parameters
+        self.low_cat = torch.as_tensor(low_cat, dtype=torch.int32)
+        self.high_cat = torch.as_tensor(high_cat, dtype=torch.int32)
 
+        if self.low_cat.ndimension() == 0:
+            self.low_cat = self.low_cat.unsqueeze(0)
+            self.high_cat = self.high_cat.unsqueeze(0)
 
-        # Check if the categorical parameters are multidimensional
-        if low_cat.ndimension() == 0:
-            low_cat = torch.tensor([low_cat])
-            high_cat = torch.tensor([high_cat])
-        
-        self.low_cat = low_cat
-        self.high_cat = high_cat
-
-        self.categoricals = []
-        for lc, hc in zip(self.low_cat, high_cat):
-            values = torch.arange(lc, hc + 1)
-            probs = torch.ones_like(values, dtype=torch.float) / len(values)
-            categorical = Categorical(probs=probs, validate_args=validate_args)
-            self.categoricals.append(categorical)
+        self.num_cats = len(self.low_cat)
+        print(self.num_cats)
+        probs = []
+        for low, high in zip(self.low_cat, self.high_cat):
+            values = torch.arange(low, high + 1)
+            probs.append(torch.ones_like(values, dtype=torch.float) / len(values))
+        print("merda")
+        print(probs)
+        self.categorical = Categorical(probs=torch.stack(probs), validate_args=validate_args)
+        print(self.categorical)
 
         batch_shape = self.uniform.batch_shape
-        event_shape = (len(self.categoricals) + low_uni.numel(),)  # Adjust event shape based on number of categorical variables
+        event_shape = (self.low_uni.numel() + self.num_cats,)
+        print(event_shape)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
-
-        # values = torch.arange(self.low_cat, self.high_cat + 1)
-        # probs = torch.ones_like(values, dtype=torch.float) / len(values)
-        # self.categorical = Categorical(probs=probs, validate_args=validate_args)
-
-        # batch_shape = self.uniform.batch_shape
-        # event_shape = (2,)  # Two-dimensional event shape
-        # super().__init__(batch_shape, event_shape, validate_args=validate_args)
-
-    # def sample(self, sample_shape=torch.Size()):
-    #     box_sample = self.uniform.sample(sample_shape)
-    #     indices = self.categorical.sample(sample_shape)
-    #     # int_sample = (self.low_cat + indices).to(torch.int).unsqueeze(-1)
-    #     int_sample = (self.low_cat + indices).to(torch.int).unsqueeze(-1)
-    #     return torch.cat([box_sample, int_sample], dim=-1)
-    
-    # def log_prob(self, value):
-    #     box_value, int_value = value[..., :-1], value[..., -1].to(torch.int64) - self.low_cat
-    #     box_log_prob = self.uniform.log_prob(box_value)
-    #     int_log_prob = self.categorical.log_prob(int_value).unsqueeze(-1)
-    #     return box_log_prob + int_log_prob
-    
-    # @constraints.dependent_property(is_discrete=False, event_dim=1)
-    # def support(self):
-    #     return CompositeConstraint(self.uniform.support, self.categorical.support, self.low_cat)
 
     def sample(self, sample_shape=torch.Size()):
         box_sample = self.uniform.sample(sample_shape)
-        int_samples = []
-        for i, cat in enumerate(self.categoricals):
-            indices = cat.sample(sample_shape)
-            int_sample = (self.low_cat[i] + indices).to(torch.int).unsqueeze(-1)
-            int_samples.append(int_sample)
-        int_sample = torch.cat(int_samples, dim=-1)
-        return torch.cat([box_sample, int_sample], dim=-1)
+        indices = self.categorical.sample(sample_shape).to(torch.int)
+        int_samples = [
+            (self.low_cat[i] + indices[..., i]).unsqueeze(-1)
+            for i in range(self.num_cats)
+        ]
+        int_samples = torch.cat(int_samples, dim=-1)
+        return torch.cat([box_sample, int_samples], dim=-1)
     
     def log_prob(self, value):
-        box_value, int_values = value[..., :self.uniform.low.numel()], value[..., self.uniform.low.numel():].to(torch.int64)
-        box_log_prob = self.uniform.log_prob(box_value).sum(dim=-1)
-        int_log_probs = []
-        for i, cat in enumerate(self.categoricals):
-            int_log_prob = cat.log_prob(int_values[..., i] - self.low_cat[i])
-            int_log_probs.append(int_log_prob)
-        int_log_prob_total = torch.stack(int_log_probs, dim=-1).sum(dim=-1, keepdim=True)
-        return box_log_prob + int_log_prob_total
+        box_values, int_values = value[..., :len(self.low_uni)], value[..., len(self.low_uni):].to(torch.int64)
+        box_log_prob = self.uniform.log_prob(box_values)
+        int_log_prob = self.categorical.log_prob(int_values - self.low_cat)
+        print("CONAAAA")
+        print(int_log_prob)
+        print(box_log_prob)
+
+        # Sum the tensors element-wise
+        total_log_probs = int_log_prob.sum(dim=-1, keepdim=True) + box_log_prob.sum(dim=-1, keepdim=True)
+        return total_log_probs
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self):
-        return CompositeConstraint(self.uniform.support, [cat.support for cat in self.categoricals], self.low_uni, self.low_cat)
+        return CompositeConstraint(
+            self.uniform.support,
+            self.categorical.support,
+            self.low_uni, self.low_cat
+        )
     
 
 class CompositeUniform(Independent):
@@ -416,10 +484,10 @@ class CompositeUniform(Independent):
             reinterpreted_batch_ndims: int = 1,
             device: str = "cpu",
     ):
-        # self.low_uni = low[0]
-        # self.high_uni = high[0]
-        # self.low_cat = low[1]
-        # self.high_cat = high[1]
+        # self.low_uni = low[:-1]
+        # self.high_uni = high[:-1]
+        # self.low_cat = low[-1]
+        # self.high_cat = high[-1]
         self.low_uni = low[:-2]
         self.high_uni = high[:-2]
         self.low_cat = low[-2:]
@@ -448,42 +516,42 @@ class CompositeUniform(Independent):
 class CompositeConstraint(constraints.Constraint):
     def __init__(self, uniform_support, categoricals_support, low_uni, low_cat):
         self.uniform_support = uniform_support
-        self.categoricals_support = categoricals_support
+        self.categorical_support = categoricals_support
         self.low_uni = low_uni
         self.low_cat = low_cat
 
     @property
     def is_discrete(self):
-        return self.box_support.is_discrete or self.categoricals_support.is_discrete
+        return any(support.is_discrete for support in self.uniform_supports) or self.categorical_support.is_discrete
 
     @property
     def event_dim(self):
-        return max(self.box_support.event_dim, self.categoricals_support.event_dim)
+        return max(support.event_dim for support in self.uniform_supports) + self.categorical_support.event_dim
 
     def check(self, value):
-        box_values, int_values = value[..., :self.low_uni.numel()], value[..., self.low_uni.numel():]
-        box_check = self.uniform_support.check(box_values).all(dim=-1)
-        int_checks = [cat_support.check(int_values[..., i] - self.low_cat[i]) for i, cat_support in enumerate(self.categoricals_support)]
-        int_check = torch.stack(int_checks, dim=-1).all(dim=-1)
-        print("\n")
-        print("box samples: ", box_values)
-        print("int samples: ", int_values)
-        print("box check: ", box_check)
-        print("int check: ", int_check)
-        print("\n")
-        return box_check & int_check
-        # box_samples, int_samples = value[..., :-1], value[..., -1].to(torch.int64) - self.cat_low
+        box_samples, int_samples = value[..., :len(self.low_uni)], value[..., len(self.low_uni):].to(torch.int64)
         # box_samples = torch.squeeze(box_samples, dim=-1)
-        # box_check = self.box_support.check(box_samples)
-        # # int_check = self.int_support.check(int_samples).unsqueeze(-1)
-        # int_check = self.int_support.check(int_samples)
-        # print("\n")
-        # print("box samples: ", box_samples)
-        # print("int samples: ", int_samples)
-        # print("box check: ", box_check)
-        # print("int check: ", int_check)
-        # print("\n")
-        # return box_check & int_check
+        box_check = self.uniform_support.check(box_samples)
+        int_check = self.categorical_support.check(int_samples - self.low_cat)
+
+        # Initialize the result tensor with True
+        if box_check.ndimension() == 1:
+            result = torch.tensor(True, dtype=torch.bool)
+            # Check if there is any False in the single sample
+            if not box_check.all() or not int_check.all():
+                result = torch.tensor(False, dtype=torch.bool)
+        else:
+            result = torch.ones(box_check.shape[0], dtype=torch.bool)
+            # Iterate over each sample
+            for i in range(box_check.shape[0]):
+                # Check if there is any False in the corresponding rows of tensor1 or tensor2
+                if not box_check[i].all() or not int_check[i].all():
+                    result[i] = False
+        print(result)
+        return result
+
+
+
 
 
 def ensure_theta_batched(theta: Tensor) -> Tensor:
@@ -602,3 +670,5 @@ def check_if_prior_on_device(
             "prior = torch.distributions.Normal"
             "(torch.zeros(2, device='cuda'), scale=1.0)`."
         )
+
+

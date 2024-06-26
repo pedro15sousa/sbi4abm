@@ -226,7 +226,7 @@ def rejection_sample_posterior_within_prior(
         )
 
         # SNPE-style rejection-sampling when the proposal is the neural net.
-        print("Prior: ", prior)
+        # print("Prior: ", prior)
         are_within_prior = within_support(prior, candidates)
         samples = candidates[are_within_prior]
 
@@ -873,7 +873,7 @@ def within_support(distribution: Any, samples: Tensor) -> Tensor:
     """
     # Try to check using the support property, use log prob method otherwise.
     try:
-        print(distribution)
+        # print(distribution)
         sample_check = distribution.support.check(samples)
 
         # Before torch v1.7.0, `support.check()` returned bools for every element.
