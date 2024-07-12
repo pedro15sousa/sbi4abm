@@ -3,7 +3,8 @@ from argparse import RawTextHelpFormatter
 import numpy as np
 import os
 import pickle
-from sbi4abm.inference import kde, neural, bayesian_opt
+# from sbi4abm.inference import kde, neural, bayesian_opt
+from sbi4abm.inference import kde, neural
 from sbi4abm.utils import io
 from sbi4abm.validation import sbc
 from sbi4abm.utils.stats import virus_summariser, flock_summariser, \

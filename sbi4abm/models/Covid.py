@@ -30,7 +30,8 @@ if cpu_count is None or cpu_count == 0:
 print(cpu_count)
 
 # Default values
-covid_sim_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../report9/covid-sim'))
+# covid_sim_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../report9/covid-sim'))
+covid_sim_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../covid-sim'))
 report9_dir = os.path.join(covid_sim_dir, 'report9')
 gb_suppress_dir = os.path.join(report9_dir, 'GB_suppress')
 output_dir = os.path.join(gb_suppress_dir, 'output')
@@ -125,17 +126,17 @@ def get_network_bin():
     network_bin = os.path.join(
             report9_dir,
             "population",
-            "NetworkGB_120T.bin")
+            "NetworkGB_250T.bin")
     return network_bin
 
 def run_intervention_sim(exe, cf, pp_file, wpop_bin, 
                          network_bin, param_values):
-    relative_spatial_contact_rate_given_social_distancing, delay_to_start_case_isolation = param_values
+    relative_spatial_contact_rate_given_social_distancing, prop_pop_vaccinated, household_quarantine_compliance, delay_to_start_case_isolation = param_values
     # update_param_file(cf, param_value)
     print("Param Value: ", str(param_values[0]))
     cmd = [
             exe,
-            "/c:120".format(threads)
+            "/c:250".format(threads)
             ]
     cmd.extend([
             "/NR:1",
@@ -147,7 +148,11 @@ def run_intervention_sim(exe, cf, pp_file, wpop_bin,
             "/CLP4:" + "1000",
             "/CLP5:" + "300",
             "/CLP6:" + str(relative_spatial_contact_rate_given_social_distancing),
+            # "/CLP7:" + str(int(delay_to_start_case_isolation)),
             "/CLP7:" + str(delay_to_start_case_isolation),
+            "/CLP8:" + str(prop_pop_vaccinated),
+            "/CLP9:" + str(household_quarantine_compliance),
+            # "/CLP10:" + str(infectiousness_vaccinated_individual),
             "/O:" + os.path.join(output_dir,
                 "PC_CI_HQ_SD_400_300_R0=2.6"),
             "/D:" + wpop_bin, # Binary pop density file (speedup)
@@ -182,8 +187,6 @@ def outcomes():
         if os.path.exists(severity_file_name):
             severity_results = pd.read_csv(severity_file_name, sep="\t")
             severity_results = severity_results.dropna(axis=1, how='all')
-
-            print(severity_results.columns)
             
             if 'cumDeath' in severity_results.columns:
                 total_cum_death = severity_results['cumDeath'].iloc[-1]
@@ -226,7 +229,7 @@ class Model:
         if not (pars is None):
             param_values = [float(p) for p in pars]
         else:
-            param_values = [0.25, 1]
+            param_values = [0.25, 0.9, 0.5, 1]
 
         run_intervention_sim(self.exe, self.cf, self.pp_file, self.wpop_bin, self.network_bin, param_values)
         cumulative_deaths, cumulative_crit, cumulative_sari, cumulative_ili, cumulative_mild = outcomes()
@@ -241,7 +244,17 @@ class Model:
 
 if __name__ == "__main__":
     # param_values = [0.8, 0.2]
-    param_values = [0.85, 1]
+    param_values = [0.3317, 0.3154, 0.2094, 1.5060]
+    # THETA:  tensor([[0.2807, 0.1149, 0.9713, 1.0853],                                                                                                                                                                                                                               
+    #     [0.3317, 0.3154, 0.2094, 1.5060],                                                                                                                                                                                                                                       
+    #     [0.2932, 0.7481, 0.5500, 4.4524],                                                                                                                                                                                                                                       
+    #     [0.4481, 0.2499, 0.3884, 3.3172],                                                                                                                                                                                                                                       
+    #     [0.6800, 0.2748, 0.1889, 2.6721]])                                                                                                                                                                                                                                      
+    # X:  tensor([[   36790.,    73725.,    73982.,  5450329.,        0.],                                                                                                                                                                                                            
+    #         [   79344.,   159949.,   161180., 10982541.,        0.],                                                                                                                                                                                                                
+    #         [   67651.,   135538.,   136188.,  9662423.,        0.],                                                                                                                                                                                                                
+    #         [  131744.,   264562.,   264695., 16524276.,        0.],                                                                                                                                                                                                                
+    #         [  234866.,   469174.,   469335., 25821858.,        0.]])  
     model = Model()
     model.simulate(param_values)
     cumulative_deaths, cumulative_crit, cumulative_sari, cumulative_ili, cumulative_mild = outcomes()

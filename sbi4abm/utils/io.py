@@ -132,8 +132,8 @@ def _load_prior(task_name):
 	# 	prior = utils.CompositeUniform(low=torch.tensor([0.0, 1]),
 	# 							 	   high=torch.tensor([1.0, 10]))
 	elif task_name == "covid":
-		prior = utils.BoxUniform(low=torch.tensor([0.0, 1]),
-								 	   high=torch.tensor([1.0, 10]))
+		prior = utils.BoxUniform(low=torch.tensor([0.0, 0.0, 0.0, 1]),
+								 	   high=torch.tensor([1.0, 1.0, 1.0, 5]))
 	return prior
 	
 def _load_dataset(task_name):
@@ -192,7 +192,7 @@ def _load_true_pars(task_name):
 	elif task_name == "socialcare":
 		theta = np.array([0.1, 0.0002, 0.0008, 18.0, 19.0])
 	elif task_name == "covid":
-		theta = np.array([0.25, 1])
+		theta = np.array([0.25, 0.9, 0.5, 1])
 	return theta
 
 def load_task(task_name):
